@@ -53,6 +53,7 @@ import { MarkdownEditor } from './MarkdownEditor';
 import { RequestMethodDropdown } from './RequestMethodDropdown';
 import { UrlBar } from './UrlBar';
 import { UrlParametersEditor } from './UrlParameterEditor';
+import { FuzzerPane } from './Fuzzer/FuzzerPane';
 
 const GraphQLEditor = lazy(() =>
   import('./graphql/GraphQLEditor').then((m) => ({ default: m.GraphQLEditor })),
@@ -70,6 +71,7 @@ const TAB_PARAMS = 'params';
 const TAB_HEADERS = 'headers';
 const TAB_AUTH = 'auth';
 const TAB_DESCRIPTION = 'description';
+const TAB_FUZZ = 'fuzz';
 
 const nonActiveRequestUrlsAtom = atom((get) => {
   const activeRequestId = get(activeRequestIdAtom);
@@ -229,6 +231,10 @@ export function HttpRequestPane({ style, fullHeight, className, activeRequest }:
       ...headersTab,
       ...authTab,
       {
+        value: TAB_FUZZ,
+        label: 'Fuzz',
+      },
+      {
         value: TAB_DESCRIPTION,
         label: 'Info',
       },
@@ -379,6 +385,9 @@ export function HttpRequestPane({ style, fullHeight, className, activeRequest }:
                 pairs={urlParameterPairs}
                 onChange={(urlParameters) => patchModel(activeRequest, { urlParameters })}
               />
+            </TabContent>
+            <TabContent value={TAB_FUZZ}>
+              <FuzzerPane activeRequest={activeRequest} />
             </TabContent>
             <TabContent value={TAB_BODY}>
               <ConfirmLargeRequestBody request={activeRequest}>
