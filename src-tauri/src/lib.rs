@@ -19,6 +19,7 @@ use std::str::FromStr;
 use std::time::Duration;
 use std::{fs, panic};
 use tauri::{AppHandle, Emitter, RunEvent, State, WebviewWindow, is_dev};
+use crate::fuzzer::FuzzManager;
 use tauri::{Listener, Runtime};
 use tauri::{Manager, WindowEvent};
 use tauri_plugin_deep_link::DeepLinkExt;
@@ -57,6 +58,7 @@ use yaak_templates::{RenderErrorBehavior, RenderOptions, Tokens, transform_args}
 mod commands;
 mod encoding;
 mod error;
+mod fuzzer;
 mod grpc;
 mod history;
 mod http_request;
@@ -1398,6 +1400,9 @@ pub fn run() {
             let grpc_handle = GrpcHandle::new(&app.app_handle());
             app.manage(Mutex::new(grpc_handle));
 
+            // Add Fuzz Manager
+            app.manage(Mutex::new(FuzzManager::new()));
+
             // Specific settings
             let settings = app.db().get_settings();
             app.app_handle().set_native_titlebar(settings.use_native_titlebar);
@@ -1451,6 +1456,8 @@ pub fn run() {
             crate::commands::cmd_get_themes,
             crate::commands::cmd_secure_template,
             crate::commands::cmd_show_workspace_key,
+            crate::fuzzer::cmd_run_fuzz_attack,
+            crate::fuzzer::cmd_stop_fuzz_attack,
         ])
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
