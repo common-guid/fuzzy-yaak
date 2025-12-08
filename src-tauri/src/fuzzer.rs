@@ -3,7 +3,6 @@ use crate::http_request::resolve_http_request;
 use crate::render::render_http_request;
 use http::header::{ACCEPT, USER_AGENT, HeaderName, HeaderValue};
 use http::HeaderMap;
-use log::{debug, error, warn};
 use reqwest::{Method, Url};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -11,13 +10,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Runtime, WebviewWindow, State};
+use tauri::Manager;
 use tokio::sync::{Semaphore, Mutex, watch};
 use yaak_models::models::{HttpRequest, Environment};
-use yaak_plugins::manager::PluginManager;
+use yaak_models::query_manager::QueryManagerExt;
 use yaak_plugins::template_callback::PluginTemplateCallback;
 use yaak_templates::{RenderErrorBehavior, RenderOptions};
 use yaak_http::manager::HttpConnectionManager;
-use yaak_http::client::HttpConnectionOptions;
+use yaak_http::client::{HttpConnectionOptions, HttpConnectionProxySetting};
 use yaak_plugins::events::{PluginContext, RenderPurpose};
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -246,7 +246,7 @@ async fn send_fuzz_request_internal<R: Runtime>(
          &HttpConnectionOptions {
             follow_redirects: true,
             validate_certificates: false,
-            proxy: yaak_models::models::HttpConnectionProxySetting::System,
+            proxy: HttpConnectionProxySetting::System,
             cookie_provider: None,
             timeout: Some(std::time::Duration::from_secs(10)),
         }
