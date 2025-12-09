@@ -52,6 +52,18 @@ export function FuzzerPane({ className, activeRequest }: Props) {
     };
   }, []);
 
+  useEffect(() => {
+    setUrl(activeRequest.url);
+    setHeaders(
+      activeRequest.headers
+        .filter((h) => h.enabled && h.name)
+        .map((h) => `${h.name}: ${h.value}`)
+        .join('\n'),
+    );
+    setBody(activeRequest.body?.text ?? '');
+    setResults([]);
+  }, [activeRequest.id]);
+
   const handleStart = async () => {
     setIsRunning(true);
     setResults([]);
