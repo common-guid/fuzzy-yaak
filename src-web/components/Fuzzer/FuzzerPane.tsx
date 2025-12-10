@@ -2,6 +2,7 @@ import type { HttpRequest } from '@yaakapp-internal/models';
 import classNames from 'classnames';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { readTextFile } from '@tauri-apps/plugin-fs';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '../core/Button';
 import { Editor } from '../core/Editor/LazyEditor';
@@ -12,6 +13,7 @@ import { Tabs, TabContent } from '../core/Tabs/Tabs';
 import { useActiveEnvironment } from '../../hooks/useActiveEnvironment';
 import { Icon } from '../core/Icon';
 import { CountBadge } from '../core/CountBadge';
+import { SelectFile } from '../SelectFile';
 
 interface Props {
   className?: string;
@@ -37,6 +39,7 @@ export function FuzzerPane({ className, activeRequest }: Props) {
   );
   const [body, setBody] = useState<string>(activeRequest.body?.text ?? '');
   const [wordlist, setWordlist] = useState<string>('');
+  const [wordlistFilePath, setWordlistFilePath] = useState<string | null>(null);
   const [results, setResults] = useState<FuzzResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [activeTab, setActiveTab] = useState('setup');
@@ -63,6 +66,23 @@ export function FuzzerPane({ className, activeRequest }: Props) {
     setBody(activeRequest.body?.text ?? '');
     setResults([]);
   }, [activeRequest.id]);
+
+  const handleLoadWordlistFromFile = useCallback(
+    async ({ filePath }: { filePath: string | null }) => {
+      setWordlistFilePath(filePath);
+      if (!filePath) {
+        return;
+      }
+
+      try {
+        const contents = await readTextFile(filePath);
+        setWordlist(contents);
+      } catch (e) {
+        console.error('Failed to read wordlist file', e);
+      }
+    },
+    [setWordlist, setWordlistFilePath],
+  );
 
   const handleStart = async () => {
     setIsRunning(true);
@@ -189,6 +209,12 @@ export function FuzzerPane({ className, activeRequest }: Props) {
 
                     <div className="space-y-1">
                         <label className="text-sm font-bold text-text-subtlest">Wordlist (One per line)</label>
+                        <SelectFile
+                            size="xs"
+                            noun="Wordlist"
+                            filePath={wordlistFilePath}
+                            onChange={handleLoadWordlistFromFile}
+                        />
                         <Editor
                             stateKey={null}
                             forceUpdateKey="wordlist"
