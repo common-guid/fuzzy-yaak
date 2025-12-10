@@ -7,6 +7,7 @@ import { createFastMutation } from '../../hooks/useFastMutation';
 import { useIsEncryptionEnabled } from '../../hooks/useIsEncryptionEnabled';
 import { useStateWithDeps } from '../../hooks/useStateWithDeps';
 import { copyToClipboard } from '../../lib/copy';
+import { toggleMarkersAroundSelection as toggleMarkersAroundSelectionInView } from '../../lib/markers';
 import {
   analyzeTemplate,
   convertTemplateToInsecure,
@@ -81,6 +82,7 @@ export interface InputHandle {
   value: () => string;
   selectAll: () => void;
   dispatch: EditorView['dispatch'];
+  toggleMarkersAroundSelection: (marker?: string) => void;
 }
 
 export function Input({ type, ...props }: InputProps) {
@@ -153,6 +155,10 @@ function BaseInput({
         editorRef.current.dispatch({
           selection: { anchor: 0, head: editorRef.current.state.doc.length },
         });
+      },
+      toggleMarkersAroundSelection(marker = '§') {
+        if (!editorRef.current) return;
+        toggleMarkersAroundSelectionInView(editorRef.current, marker);
       },
     }),
     [],

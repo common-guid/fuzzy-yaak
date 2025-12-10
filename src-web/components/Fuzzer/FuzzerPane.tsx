@@ -1,16 +1,19 @@
 import type { HttpRequest } from '@yaakapp-internal/models';
+import type { EditorView } from '@codemirror/view';
 import classNames from 'classnames';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { readTextFile } from '@tauri-apps/plugin-fs';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '../core/Button';
 import { Editor } from '../core/Editor/LazyEditor';
+import type { InputHandle } from '../core/Input';
 import { Input } from '../core/Input';
 import { PlainInput } from '../core/PlainInput';
 import { VStack, HStack } from '../core/Stacks';
 import { Tabs, TabContent } from '../core/Tabs/Tabs';
 import { useActiveEnvironment } from '../../hooks/useActiveEnvironment';
+import { toggleMarkersAroundSelection } from '../../lib/markers';
 import { Icon } from '../core/Icon';
 import { CountBadge } from '../core/CountBadge';
 import { SelectFile } from '../SelectFile';
@@ -44,6 +47,26 @@ export function FuzzerPane({ className, activeRequest }: Props) {
   const [isRunning, setIsRunning] = useState(false);
   const [activeTab, setActiveTab] = useState('setup');
   const activeEnvironment = useActiveEnvironment();
+
+  const urlInputRef = useRef<InputHandle | null>(null);
+  const headersEditorRef = useRef<EditorView | null>(null);
+  const bodyEditorRef = useRef<EditorView | null>(null);
+
+  const handleAddUrlMarker = useCallback(() => {
+    urlInputRef.current?.toggleMarkersAroundSelection('§');
+  }, []);
+
+  const handleAddHeadersMarker = useCallback(() => {
+    if (headersEditorRef.current) {
+      toggleMarkersAroundSelection(headersEditorRef.current, '§');
+    }
+  }, []);
+
+  const handleAddBodyMarker = useCallback(() => {
+    if (bodyEditorRef.current) {
+      toggleMarkersAroundSelection(bodyEditorRef.current, '§');
+    }
+  }, []);
 
   useEffect(() => {
     // Listen for results
@@ -132,17 +155,6 @@ export function FuzzerPane({ className, activeRequest }: Props) {
       }
   };
 
-  const addMarker = (current: string, setter: (v: string) => void) => {
-    // Ideally we use the selection, but since we don't track focus easily across components without complex context/refs,
-    // we will simply append §marker§ to the end if nothing selected, or if we can't determine selection.
-    // For a real "Intruder" experience, we'd need refs to all editors.
-    // Since we provided separate Add Marker buttons, let's just append for now or wrap "payload" if it exists.
-
-    // Better: Allow user to click "Add Marker" which copies "§§" to clipboard?
-    // Or just insert "§§" at end.
-    setter(current + '§§');
-  };
-
   return (
     <div className={classNames(className, 'h-full flex flex-col')}>
       <Tabs
@@ -161,7 +173,7 @@ export function FuzzerPane({ className, activeRequest }: Props) {
                     <div className="space-y-1">
                         <div className="flex justify-between">
                             <label className="text-sm font-bold text-text-subtlest">URL</label>
-                             <Button size="xs" variant="border" onClick={() => addMarker(url, setUrl)}>Add §</Button>
+                             <Button size="xs" variant="border" onClick={handleAddUrlMarker}>Add §</Button>
                         </div>
                         <Input
                             label="URL"
@@ -171,6 +183,7 @@ export function FuzzerPane({ className, activeRequest }: Props) {
                             defaultValue={url}
                             onChange={setUrl}
                             placeholder="http://example.com/§id§"
+                            setRef={(h) => { urlInputRef.current = h; }}
                         />
                     </div>
 
@@ -178,7 +191,7 @@ export function FuzzerPane({ className, activeRequest }: Props) {
                          <div className="flex flex-col space-y-1 h-full">
                             <div className="flex justify-between">
                                 <label className="text-sm font-bold text-text-subtlest">Headers (Name: Value)</label>
-                                <Button size="xs" variant="border" onClick={() => addMarker(headers, setHeaders)}>Add §</Button>
+                                <Button size="xs" variant="border" onClick={handleAddHeadersMarker}>Add §</Button>
                             </div>
                             <Editor
                                 stateKey={null}
@@ -188,12 +201,13 @@ export function FuzzerPane({ className, activeRequest }: Props) {
                                 language="text"
                                 heightMode="full"
                                 className="border border-border rounded-md"
+                                setRef={(view) => { headersEditorRef.current = view; }}
                             />
                         </div>
                         <div className="flex flex-col space-y-1 h-full">
                             <div className="flex justify-between">
                                 <label className="text-sm font-bold text-text-subtlest">Body</label>
-                                <Button size="xs" variant="border" onClick={() => addMarker(body, setBody)}>Add §</Button>
+                                <Button size="xs" variant="border" onClick={handleAddBodyMarker}>Add §</Button>
                             </div>
                             <Editor
                                 stateKey={null}
@@ -203,6 +217,7 @@ export function FuzzerPane({ className, activeRequest }: Props) {
                                 language="json" // Or dynamic based on request
                                 heightMode="full"
                                 className="border border-border rounded-md"
+                                setRef={(view) => { bodyEditorRef.current = view; }}
                             />
                         </div>
                     </div>
