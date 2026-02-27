@@ -3,14 +3,12 @@ import classNames from 'classnames';
 import { useAtom } from 'jotai';
 import { atom } from 'jotai';
 import type { CSSProperties } from 'react';
-import { useCallback, useState, useMemo } from 'react';
+import { useCallback, useState, useMemo, useEffect } from 'react';
 import { useImportCurl } from '../hooks/useImportCurl';
 import { invokeCmd } from '../lib/tauri';
 import { Button } from './core/Button';
 import { Editor } from './core/Editor/LazyEditor';
 import { Tabs, TabContent } from './core/Tabs/Tabs';
-import { UrlBar } from './UrlBar';
-import { PlainInput } from './core/PlainInput';
 import { HStack } from './core/Stacks';
 import { Dialog } from './core/Dialog';
 import { fuzzerMarkersExtension, type Marker } from './fuzzer/FuzzerEditorExtensions';
@@ -29,9 +27,13 @@ export const fuzzerResultsAtom = atomWithKVStorage<FuzzerResult[]>('fuzzer_resul
 export const fuzzerIsLockedAtom = atomWithKVStorage<boolean>('fuzzer_is_locked', false);
 export const fuzzerIsRunningAtom = atom<boolean>(false);
 
+// Helper to store raw headers string in atom to survive reloads,
+// since we parse/unparse from HttpRequest which might lose exact formatting
+export const fuzzerRawHeadersAtom = atomWithKVStorage<string>('fuzzer_raw_headers', '');
+
 interface FuzzerMarker {
   id: string;
-  field: 'url' | 'body';
+  field: 'url' | 'body' | 'headers';
   start: number;
   end: number;
   originalText: string;
@@ -86,14 +88,17 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   const [isLocked, setIsLocked] = useAtom(fuzzerIsLockedAtom);
   const [isRunning, setIsRunning] = useAtom(fuzzerIsRunningAtom);
   const [results, setResults] = useAtom(fuzzerResultsAtom);
+  const [rawHeaders, setRawHeaders] = useAtom(fuzzerRawHeadersAtom);
 
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [curlInput, setCurlInput] = useState('');
 
+  const [urlEditorView, setUrlEditorView] = useState<EditorView | null>(null);
+  const [headersEditorView, setHeadersEditorView] = useState<EditorView | null>(null);
   const [bodyEditorView, setBodyEditorView] = useState<EditorView | null>(null);
 
   // Track focused field to know where to apply marker
-  const [focusedField, setFocusedField] = useState<'url' | 'body' | null>(null);
+  const [focusedField, setFocusedField] = useState<'url' | 'body' | 'headers' | null>(null);
 
   const handleImportCurl = async () => {
     try {
@@ -102,6 +107,11 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         workspaceId: 'temp', // We don't persist it yet
       });
       setDraftRequest(request);
+
+      // Initialize raw headers from imported request
+      const headersText = request.headers.map(h => `${h.name}: ${h.value}`).join('\n');
+      setRawHeaders(headersText);
+
       setShowCurlImport(false);
       setCurlInput('');
       setMarkers([]);
@@ -120,38 +130,33 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   };
 
   const handleMarkSelection = () => {
-      // NOTE: For now we only support Body marking as UrlBar doesn't expose view.
-      // But the logic is structured to support it if we get access.
-      if (focusedField === 'body' && bodyEditorView) {
-          const selection = bodyEditorView.state.selection.main;
+      let view: EditorView | null = null;
+      let field: FuzzerMarker['field'] | null = null;
+
+      if (focusedField === 'url') {
+          view = urlEditorView;
+          field = 'url';
+      } else if (focusedField === 'headers') {
+          view = headersEditorView;
+          field = 'headers';
+      } else if (focusedField === 'body') {
+          view = bodyEditorView;
+          field = 'body';
+      }
+
+      if (view && field) {
+          const selection = view.state.selection.main;
           if (selection.empty) return;
 
           const marker: FuzzerMarker = {
               id: generateId(),
-              field: 'body',
+              field,
               start: selection.from,
               end: selection.to,
-              originalText: bodyEditorView.state.doc.sliceString(selection.from, selection.to),
+              originalText: view.state.doc.sliceString(selection.from, selection.to),
           };
           setMarkers([...markers, marker]);
           setIsLocked(true);
-      } else {
-          // If we can't detect focus or it's not body, alert user or try body fallback
-          // For now, fallback to body if available
-           if (bodyEditorView) {
-              const selection = bodyEditorView.state.selection.main;
-              if (!selection.empty) {
-                  const marker: FuzzerMarker = {
-                      id: generateId(),
-                      field: 'body',
-                      start: selection.from,
-                      end: selection.to,
-                      originalText: bodyEditorView.state.doc.sliceString(selection.from, selection.to),
-                  };
-                  setMarkers([...markers, marker]);
-                  setIsLocked(true);
-              }
-           }
       }
   };
 
@@ -170,7 +175,12 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
     const words = wordlist.split('\n').map(w => w.trim()).filter(w => w);
 
     // Sort markers by start index descending so replacements don't shift earlier indices
-    const sortedMarkers = [...markers].sort((a, b) => b.start - a.start);
+    // We need to group by field first, then sort
+    const markersByField = {
+        url: markers.filter(m => m.field === 'url').sort((a, b) => b.start - a.start),
+        headers: markers.filter(m => m.field === 'headers').sort((a, b) => b.start - a.start),
+        body: markers.filter(m => m.field === 'body').sort((a, b) => b.start - a.start),
+    };
 
     for (const word of words) {
         if (!isRunning) break; // Check for cancel (though hook state updates might be delayed in loop)
@@ -179,18 +189,32 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         const request = { ...draftRequest };
         let bodyText = request.body?.text || '';
         let urlText = request.url || '';
+        let headersText = rawHeaders;
 
         // Apply replacements
-        for (const marker of sortedMarkers) {
-            if (marker.field === 'body') {
-                bodyText = bodyText.substring(0, marker.start) + word + bodyText.substring(marker.end);
-            } else if (marker.field === 'url') {
-                urlText = urlText.substring(0, marker.start) + word + urlText.substring(marker.end);
-            }
+        for (const marker of markersByField.url) {
+             urlText = urlText.substring(0, marker.start) + word + urlText.substring(marker.end);
+        }
+        for (const marker of markersByField.body) {
+             bodyText = bodyText.substring(0, marker.start) + word + bodyText.substring(marker.end);
+        }
+        for (const marker of markersByField.headers) {
+             headersText = headersText.substring(0, marker.start) + word + headersText.substring(marker.end);
         }
 
         request.body = { ...request.body, text: bodyText };
         request.url = urlText;
+
+        // Parse headers back
+        const newHeaders = headersText.split('\n').map(line => {
+            const parts = line.split(':');
+            if (parts.length < 2) return null;
+            const name = parts[0]?.trim();
+            const value = parts.slice(1).join(':').trim();
+            if (!name) return null;
+            return { name, value, enabled: true, id: generateId() };
+        }).filter(h => h !== null);
+        request.headers = newHeaders as any; // Cast to satisfy type
 
         try {
             const start = performance.now();
@@ -225,18 +249,15 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
     setIsRunning(false);
   };
 
-  const bodyMarkers = useMemo(() =>
-      markers.filter(m => m.field === 'body').map(m => ({
+  const getExtensionsForField = (field: FuzzerMarker['field']) => {
+      const fieldMarkers = markers.filter(m => m.field === field).map(m => ({
           id: m.id,
           start: m.start,
           end: m.end,
           originalText: m.originalText
-      })),
-  [markers]);
-
-  const bodyExtensions = useMemo(() =>
-     isLocked ? fuzzerMarkersExtension(bodyMarkers) : [],
-  [isLocked, bodyMarkers]);
+      }));
+      return isLocked ? fuzzerMarkersExtension(fieldMarkers) : [];
+  };
 
   return (
     <div className="h-full grid grid-cols-[1fr_300px] divide-x divide-border-subtle">
@@ -254,7 +275,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
                     onClick={handleMarkSelection}
                     variant="border"
                 >
-                    Mark Selection (Body)
+                    Mark Selection ({focusedField ? focusedField.toUpperCase() : 'None'})
                 </Button>
                 {isLocked && (
                     <Button size="sm" color="danger" variant="border" onClick={handleClearMarkers} disabled={isRunning}>
@@ -274,31 +295,57 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         </div>
 
         {draftRequest ? (
-          <div className="flex-1 flex flex-col min-h-0">
-             {/* Using simple div wrapper to capture focus events for now */}
-             <div onFocus={() => setFocusedField('url')} tabIndex={-1}>
-                <UrlBar
-                    url={draftRequest.url}
-                    placeholder="https://example.com"
-                    onUrlChange={(url) => !isLocked && updateDraft({ url })}
-                    onSend={() => {}}
-                    onCancel={() => {}}
-                    isLoading={false}
-                    forceUpdateKey={draftRequest.id}
-                    stateKey={`fuzzer.url.${draftRequest.id}`}
-                />
+          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+             {/* URL Editor */}
+             <div className="p-2 border-b border-border-subtle" onFocus={() => setFocusedField('url')}>
+                <div className="text-xs text-text-subtle mb-1">URL</div>
+                <div className="border border-border-subtle rounded overflow-hidden">
+                    <Editor
+                        language="url"
+                        singleLine
+                        defaultValue={draftRequest.url}
+                        onChange={(url) => !isLocked && updateDraft({ url })}
+                        readOnly={isLocked || isRunning}
+                        heightMode="auto"
+                        stateKey={`fuzzer.url.${draftRequest.id}`}
+                        setRef={setUrlEditorView}
+                        extraExtensions={getExtensionsForField('url')}
+                    />
+                </div>
              </div>
-              <div className="flex-1 min-h-0 relative" onFocus={() => setFocusedField('body')}>
-                  <Editor
-                    language="json"
-                    defaultValue={draftRequest.body?.text ?? ''}
-                    onChange={(text) => !isLocked && updateDraft({ body: { ...draftRequest.body, text } })}
-                    readOnly={isLocked || isRunning}
-                    heightMode="full"
-                    stateKey={`fuzzer.body.${draftRequest.id}`}
-                    setRef={setBodyEditorView}
-                    extraExtensions={bodyExtensions}
-                  />
+
+             {/* Headers Editor */}
+             <div className="flex-1 min-h-[150px] flex flex-col border-b border-border-subtle" onFocus={() => setFocusedField('headers')}>
+                <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Headers (Raw)</div>
+                <div className="flex-1 relative">
+                    <Editor
+                        language="text" // Http headers language would be better if available
+                        defaultValue={rawHeaders}
+                        onChange={(text) => !isLocked && setRawHeaders(text)}
+                        readOnly={isLocked || isRunning}
+                        heightMode="full"
+                        stateKey={`fuzzer.headers.${draftRequest.id}`}
+                        setRef={setHeadersEditorView}
+                        extraExtensions={getExtensionsForField('headers')}
+                    />
+                </div>
+             </div>
+
+             {/* Body Editor */}
+              <div className="flex-1 min-h-[200px] flex flex-col" onFocus={() => setFocusedField('body')}>
+                  <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Body</div>
+                  <div className="flex-1 relative">
+                    <Editor
+                        language="json"
+                        defaultValue={draftRequest.body?.text ?? ''}
+                        onChange={(text) => !isLocked && updateDraft({ body: { ...draftRequest.body, text } })}
+                        readOnly={isLocked || isRunning}
+                        heightMode="full"
+                        stateKey={`fuzzer.body.${draftRequest.id}`}
+                        setRef={setBodyEditorView}
+                        extraExtensions={getExtensionsForField('body')}
+                    />
+                  </div>
               </div>
           </div>
         ) : (
