@@ -18,7 +18,7 @@ import type { EditorView } from '@codemirror/view';
 import { generateId } from '../lib/generateId';
 import { sendEphemeralRequest } from '../lib/sendEphemeralRequest';
 import { Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from './core/Table';
-import { StatusTag } from './core/StatusTag';
+import { HttpStatusTagRaw } from './core/HttpStatusTag';
 import { atomWithKVStorage } from '../lib/atoms/atomWithKVStorage';
 
 // Use atomWithKVStorage for persistence
@@ -391,7 +391,7 @@ function FuzzerResultsPane() {
                              <TableRow key={r.id}>
                                 <TableCell>{r.word}</TableCell>
                                 <TableCell>
-                                    <StatusTag status={r.status} />
+                                    <HttpStatusTagRaw status={r.status} />
                                 </TableCell>
                                 <TableCell>{r.contentLength}</TableCell>
                                 <TableCell>{r.elapsed.toFixed(0)}ms</TableCell>
