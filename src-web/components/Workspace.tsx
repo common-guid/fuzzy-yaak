@@ -205,7 +205,6 @@ function WorkspaceBody() {
   const activeFolder = useAtomValue(activeFolderAtom);
   const activeWorkspace = useAtomValue(activeWorkspaceAtom);
 
-  // @ts-ignore
   const { view } = useSearch({ strict: false });
 
   if (activeWorkspace == null) {

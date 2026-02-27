@@ -1,12 +1,11 @@
 import {
   Decoration,
   type DecorationSet,
-  EditorView,
+  type EditorView,
   ViewPlugin,
   type ViewUpdate,
-  WidgetType,
 } from '@codemirror/view';
-import { RangeSetBuilder, StateField, type Extension } from '@codemirror/state';
+import { RangeSetBuilder, type Extension } from '@codemirror/state';
 
 export interface Marker {
   id: string;

@@ -1,17 +1,16 @@
-import type { HttpRequest, HttpResponse } from '@yaakapp-internal/models';
+import type { HttpRequest } from '@yaakapp-internal/models';
 import classNames from 'classnames';
 import { useAtom } from 'jotai';
 import { atom } from 'jotai';
 import type { CSSProperties } from 'react';
-import { useCallback, useState, useMemo, useEffect } from 'react';
-import { useImportCurl } from '../hooks/useImportCurl';
+import { useState, useMemo, useRef } from 'react';
 import { invokeCmd } from '../lib/tauri';
 import { Button } from './core/Button';
 import { Editor } from './core/Editor/LazyEditor';
-import { Tabs, TabContent } from './core/Tabs/Tabs';
+import { Tabs, TabContent, type TabsRef } from './core/Tabs/Tabs';
 import { HStack } from './core/Stacks';
 import { Dialog } from './core/Dialog';
-import { fuzzerMarkersExtension, type Marker } from './fuzzer/FuzzerEditorExtensions';
+import { fuzzerMarkersExtension } from './fuzzer/FuzzerEditorExtensions';
 import type { EditorView } from '@codemirror/view';
 import { generateId } from '../lib/generateId';
 import { sendEphemeralRequest } from '../lib/sendEphemeralRequest';
@@ -55,14 +54,20 @@ interface Props {
 }
 
 export function FuzzerLayout({ style, className }: Props) {
-  const [activeTab, setActiveTab] = useState('request');
+  const tabsRef = useRef<TabsRef>(null);
+
+  // We don't need activeTab state unless we render differently based on it,
+  // but Tabs handles content switching.
+  const switchToResults = () => {
+      tabsRef.current?.setActiveTab('results');
+  };
 
   return (
     <div style={style} className={classNames(className, 'h-full flex flex-col bg-surface')}>
       <Tabs
+        ref={tabsRef}
         defaultValue="request"
-        onChangeValue={setActiveTab}
-        value={activeTab} // Control the tab
+        label="Fuzzer Tabs"
         tabs={[
           { value: 'request', label: 'Request' },
           { value: 'results', label: 'Results' },
@@ -71,7 +76,7 @@ export function FuzzerLayout({ style, className }: Props) {
         tabListClassName="px-2 border-b border-border-subtle"
       >
         <TabContent value="request">
-          <FuzzerRequestPane switchToResults={() => setActiveTab('results')} />
+          <FuzzerRequestPane switchToResults={switchToResults} />
         </TabContent>
         <TabContent value="results">
           <FuzzerResultsPane />
@@ -87,7 +92,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   const [wordlist, setWordlist] = useAtom(fuzzerWordlistAtom);
   const [isLocked, setIsLocked] = useAtom(fuzzerIsLockedAtom);
   const [isRunning, setIsRunning] = useAtom(fuzzerIsRunningAtom);
-  const [results, setResults] = useAtom(fuzzerResultsAtom);
+  const [, setResults] = useAtom(fuzzerResultsAtom); // results unused here
   const [rawHeaders, setRawHeaders] = useAtom(fuzzerRawHeadersAtom);
 
   const [showCurlImport, setShowCurlImport] = useState(false);
@@ -206,15 +211,17 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         request.url = urlText;
 
         // Parse headers back
-        const newHeaders = headersText.split('\n').map(line => {
+        interface Header { name: string; value: string; enabled: boolean; id: string }
+        const newHeaders: Header[] = headersText.split('\n').map(line => {
             const parts = line.split(':');
             if (parts.length < 2) return null;
             const name = parts[0]?.trim();
             const value = parts.slice(1).join(':').trim();
             if (!name) return null;
             return { name, value, enabled: true, id: generateId() };
-        }).filter(h => h !== null);
-        request.headers = newHeaders as any; // Cast to satisfy type
+        }).filter((h): h is Header => h !== null);
+
+        request.headers = newHeaders;
 
         try {
             const start = performance.now();
@@ -297,6 +304,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         {draftRequest ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
              {/* URL Editor */}
+             {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
              <div className="p-2 border-b border-border-subtle" onFocus={() => setFocusedField('url')}>
                 <div className="text-xs text-text-subtle mb-1">URL</div>
                 <div className="border border-border-subtle rounded overflow-hidden">
@@ -315,11 +323,12 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
              </div>
 
              {/* Headers Editor */}
+             {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
              <div className="flex-1 min-h-[150px] flex flex-col border-b border-border-subtle" onFocus={() => setFocusedField('headers')}>
                 <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Headers (Raw)</div>
                 <div className="flex-1 relative">
                     <Editor
-                        language="text" // Http headers language would be better if available
+                        language={null} // Force plain text
                         defaultValue={rawHeaders}
                         onChange={(text) => !isLocked && setRawHeaders(text)}
                         readOnly={isLocked || isRunning}
@@ -332,6 +341,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
              </div>
 
              {/* Body Editor */}
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
               <div className="flex-1 min-h-[200px] flex flex-col" onFocus={() => setFocusedField('body')}>
                   <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Body</div>
                   <div className="flex-1 relative">
@@ -379,7 +389,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
       >
         <div className="flex flex-col gap-3 min-w-[500px]">
             <Editor
-                language="bash"
+                language={null} // Plain text for curl paste
                 defaultValue={curlInput}
                 onChange={setCurlInput}
                 heightMode="auto"
