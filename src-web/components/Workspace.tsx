@@ -1,3 +1,4 @@
+import { useSearch } from '@tanstack/react-router';
 import { workspacesAtom } from '@yaakapp-internal/models';
 import classNames from 'classnames';
 import { useAtomValue } from 'jotai';
@@ -31,6 +32,7 @@ import { duplicateRequestOrFolderAndNavigate } from '../lib/duplicateRequestOrFo
 import { importData } from '../lib/importData';
 import { jotaiStore } from '../lib/jotai';
 import { CreateDropdown } from './CreateDropdown';
+import { FuzzerLayout } from './FuzzerLayout';
 import { Banner } from './core/Banner';
 import { Button } from './core/Button';
 import { HotkeyList } from './core/HotkeyList';
@@ -203,6 +205,9 @@ function WorkspaceBody() {
   const activeFolder = useAtomValue(activeFolderAtom);
   const activeWorkspace = useAtomValue(activeWorkspaceAtom);
 
+  // @ts-ignore
+  const { view } = useSearch({ strict: false });
+
   if (activeWorkspace == null) {
     return (
       <m.div
@@ -218,6 +223,10 @@ function WorkspaceBody() {
         </Banner>
       </m.div>
     );
+  }
+
+  if (view === 'fuzzer') {
+    return <FuzzerLayout style={body} />;
   }
 
   if (activeRequest?.model === 'grpc_request') {
