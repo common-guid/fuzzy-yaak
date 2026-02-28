@@ -16,9 +16,11 @@ export interface FuzzerResult {
   contentLength: number;
   error?: string;
   timestamp: number;
+  request?: HttpRequest;
+  response?: HttpResponse;
 }
 
-type SendResult = Pick<HttpResponse, 'status' | 'contentLength' | 'error'>;
+type SendResult = HttpResponse;
 
 interface RunFuzzerRequestsOptions {
   draftRequest: HttpRequest;
@@ -61,6 +63,24 @@ function parseHeaders(headersText: string, generateId: () => string) {
     });
 }
 
+function cloneRequest(request: HttpRequest): HttpRequest {
+  return {
+    ...request,
+    authentication: { ...request.authentication },
+    body: { ...request.body },
+    headers: request.headers.map((header) => ({ ...header })),
+    urlParameters: request.urlParameters.map((param) => ({ ...param })),
+  };
+}
+
+function cloneResponse(response: HttpResponse): HttpResponse {
+  return {
+    ...response,
+    headers: response.headers.map((header) => ({ ...header })),
+    requestHeaders: response.requestHeaders.map((header) => ({ ...header })),
+  };
+}
+
 export async function runFuzzerRequests({
   draftRequest,
   markers,
@@ -88,6 +108,7 @@ export async function runFuzzerRequests({
     const headersText = applyMarkers(rawHeaders, headerMarkers, word);
     request.body = { ...request.body, text: bodyText };
     request.headers = parseHeaders(headersText, generateId);
+    const requestSnapshot = cloneRequest(request);
 
     try {
       const start = nowPerf();
@@ -102,6 +123,8 @@ export async function runFuzzerRequests({
         contentLength: response.contentLength ?? 0,
         error: response.error ?? undefined,
         timestamp: now(),
+        request: requestSnapshot,
+        response: cloneResponse(response),
       });
     } catch (e) {
       addResult({
@@ -112,6 +135,7 @@ export async function runFuzzerRequests({
         contentLength: 0,
         error: String(e),
         timestamp: now(),
+        request: requestSnapshot,
       });
     }
   }
