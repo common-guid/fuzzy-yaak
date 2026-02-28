@@ -1,9 +1,10 @@
 import type { HttpRequest } from '@yaakapp-internal/models';
 import classNames from 'classnames';
-import { useAtom } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import { atom } from 'jotai';
 import type { CSSProperties } from 'react';
 import { useState, useMemo, useRef } from 'react';
+import { activeWorkspaceAtom } from '../hooks/useActiveWorkspace';
 import { invokeCmd } from '../lib/tauri';
 import { Button } from './core/Button';
 import { Editor } from './core/Editor/LazyEditor';
@@ -71,6 +72,7 @@ export function FuzzerLayout({ style, className }: Props) {
 }
 
 function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void }) {
+  const activeWorkspace = useAtomValue(activeWorkspaceAtom);
   const [draftRequest, setDraftRequest] = useAtom(fuzzerDraftRequestAtom);
   const [markers, setMarkers] = useAtom(fuzzerMarkersAtom);
   const [wordlist, setWordlist] = useAtom(fuzzerWordlistAtom);
@@ -90,12 +92,16 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   const [focusedField, setFocusedField] = useState<'url' | 'body' | 'headers' | null>(null);
 
   const handleImportCurl = async () => {
+    if (activeWorkspace?.id == null) {
+      console.error('Cannot import curl for fuzzer: no active workspace');
+      return;
+    }
     try {
       const request: HttpRequest = await invokeCmd('cmd_curl_to_request', {
         command: curlInput,
-        workspaceId: 'temp', // We don't persist it yet
+        workspaceId: activeWorkspace.id,
       });
-      setDraftRequest(request);
+      setDraftRequest({ ...request, workspaceId: activeWorkspace.id });
 
       // Initialize raw headers from imported request
       const headersText = request.headers.map(h => `${h.name}: ${h.value}`).join('\n');
@@ -155,7 +161,9 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   };
 
   const handleRunFuzzer = async () => {
-    if (!draftRequest || markers.length === 0 || !wordlist.trim()) return;
+    if (!draftRequest || markers.length === 0 || !wordlist.trim() || activeWorkspace?.id == null) {
+      return;
+    }
 
     setIsRunning(true);
     setResults([]); // Clear previous run
@@ -170,6 +178,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         words,
         sendRequest: (request) => sendEphemeralRequest(request, null),
         addResult: (result) => setResults((prev) => [...prev, result]),
+        workspaceId: activeWorkspace.id,
         generateId,
         now: () => Date.now(),
         nowPerf: () => performance.now(),
@@ -217,7 +226,13 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
              <Button
                 size="sm"
                 color="primary"
-                disabled={!draftRequest || markers.length === 0 || !wordlist.trim() || isRunning}
+                disabled={
+                  !draftRequest ||
+                  markers.length === 0 ||
+                  !wordlist.trim() ||
+                  isRunning ||
+                  activeWorkspace?.id == null
+                }
                 onClick={handleRunFuzzer}
              >
                  {isRunning ? 'Running...' : 'Run Fuzzer'}

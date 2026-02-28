@@ -27,6 +27,7 @@ interface RunFuzzerRequestsOptions {
   words: string[];
   sendRequest: (request: HttpRequest) => Promise<SendResult>;
   addResult: (result: FuzzerResult) => void;
+  workspaceId?: string;
   generateId: () => string;
   now: () => number;
   nowPerf: () => number;
@@ -67,6 +68,7 @@ export async function runFuzzerRequests({
   words,
   sendRequest,
   addResult,
+  workspaceId,
   generateId,
   now,
   nowPerf,
@@ -79,7 +81,7 @@ export async function runFuzzerRequests({
   for (const word of words) {
     if (!shouldContinue()) break;
 
-    const request = { ...draftRequest };
+    const request = { ...draftRequest, workspaceId: workspaceId ?? draftRequest.workspaceId };
 
     request.url = applyMarkers(request.url ?? '', urlMarkers, word);
     const bodyText = applyMarkers(request.body?.text ?? '', bodyMarkers, word);

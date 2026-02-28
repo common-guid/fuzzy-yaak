@@ -96,4 +96,29 @@ describe('runFuzzerRequests', () => {
     expect(results.map((r) => r.word)).toEqual(['alpha', 'beta']);
     expect(results.map((r) => r.status)).toEqual([200, 200]);
   });
+
+  it('uses the active workspace id when provided', async () => {
+    const request = createRequest();
+    const sendRequest = vi.fn().mockResolvedValue({
+      status: 200,
+      contentLength: 0,
+      error: null,
+    });
+
+    await runFuzzerRequests({
+      draftRequest: { ...request, workspaceId: 'temp' },
+      markers: [],
+      rawHeaders: '',
+      words: ['alpha'],
+      sendRequest,
+      addResult: () => {},
+      workspaceId: 'ws-real',
+      generateId: createIdGenerator(),
+      now: () => 1_700_000_000_000,
+      nowPerf: () => 1,
+    });
+
+    const sentRequest = sendRequest.mock.calls[0]?.[0];
+    expect(sentRequest?.workspaceId).toBe('ws-real');
+  });
 });

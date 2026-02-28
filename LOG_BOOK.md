@@ -4,3 +4,8 @@ Resolved a stale-state bug that caused the fuzzer run loop to exit before sendin
   - src-web/components/fuzzer/runFuzzer.ts
   - src-web/components/fuzzer/runFuzzer.test.ts
   - src-web/components/FuzzerLayout.test.tsx
+## Fix fuzzer SQL foreign key error during environment resolution | 2026-02-28
+Fixed fuzzer request execution to always run in the active workspace context, preventing environment-resolution FK failures caused by stale `workspaceId` values from draft/imported requests. Added regression coverage to verify workspace override behavior and validated with `npx vitest run src-web/components/fuzzer/runFuzzer.test.ts` and `npm --workspace @yaakapp/app run lint`.
+  - src-web/components/FuzzerLayout.tsx
+  - src-web/components/fuzzer/runFuzzer.ts
+  - src-web/components/fuzzer/runFuzzer.test.ts
