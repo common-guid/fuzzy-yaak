@@ -53,7 +53,7 @@ describe('Fuzzer State Logic', () => {
 
     const markers = store.get(fuzzerMarkersAtom);
     expect(markers).toHaveLength(1);
-    expect(markers[0].id).toBe('1');
+    expect(markers[0]?.id).toBe('1');
   });
 
   it('should store results correctly', () => {
@@ -70,6 +70,6 @@ describe('Fuzzer State Logic', () => {
 
     const results = store.get(fuzzerResultsAtom);
     expect(results).toHaveLength(1);
-    expect(results[0].word).toBe('payload');
+    expect(results[0]?.word).toBe('payload');
   });
 });

@@ -17,6 +17,7 @@ import { sendEphemeralRequest } from '../lib/sendEphemeralRequest';
 import { Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from './core/Table';
 import { HttpStatusTagRaw } from './core/HttpStatusTag';
 import { atomWithKVStorage } from '../lib/atoms/atomWithKVStorage';
+import { runFuzzerRequests, type FuzzerMarker, type FuzzerResult } from './fuzzer/runFuzzer';
 
 // Use atomWithKVStorage for persistence
 export const fuzzerDraftRequestAtom = atomWithKVStorage<HttpRequest | null>('fuzzer_draft_request', null);
@@ -30,23 +31,6 @@ export const fuzzerIsRunningAtom = atom<boolean>(false);
 // since we parse/unparse from HttpRequest which might lose exact formatting
 export const fuzzerRawHeadersAtom = atomWithKVStorage<string>('fuzzer_raw_headers', '');
 
-interface FuzzerMarker {
-  id: string;
-  field: 'url' | 'body' | 'headers';
-  start: number;
-  end: number;
-  originalText: string;
-}
-
-interface FuzzerResult {
-  id: string;
-  word: string;
-  status: number;
-  elapsed: number;
-  contentLength: number;
-  error?: string;
-  timestamp: number;
-}
 
 interface Props {
   style?: CSSProperties;
@@ -178,82 +162,21 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
     switchToResults();
 
     const words = wordlist.split('\n').map(w => w.trim()).filter(w => w);
-
-    // Sort markers by start index descending so replacements don't shift earlier indices
-    // We need to group by field first, then sort
-    const markersByField = {
-        url: markers.filter(m => m.field === 'url').sort((a, b) => b.start - a.start),
-        headers: markers.filter(m => m.field === 'headers').sort((a, b) => b.start - a.start),
-        body: markers.filter(m => m.field === 'body').sort((a, b) => b.start - a.start),
-    };
-
-    for (const word of words) {
-        if (!isRunning) break; // Check for cancel (though hook state updates might be delayed in loop)
-
-        // Clone request
-        const request = { ...draftRequest };
-        let bodyText = request.body?.text || '';
-        let urlText = request.url || '';
-        let headersText = rawHeaders;
-
-        // Apply replacements
-        for (const marker of markersByField.url) {
-             urlText = urlText.substring(0, marker.start) + word + urlText.substring(marker.end);
-        }
-        for (const marker of markersByField.body) {
-             bodyText = bodyText.substring(0, marker.start) + word + bodyText.substring(marker.end);
-        }
-        for (const marker of markersByField.headers) {
-             headersText = headersText.substring(0, marker.start) + word + headersText.substring(marker.end);
-        }
-
-        request.body = { ...request.body, text: bodyText };
-        request.url = urlText;
-
-        // Parse headers back
-        interface Header { name: string; value: string; enabled: boolean; id: string }
-        const newHeaders: Header[] = headersText.split('\n').map(line => {
-            const parts = line.split(':');
-            if (parts.length < 2) return null;
-            const name = parts[0]?.trim();
-            const value = parts.slice(1).join(':').trim();
-            if (!name) return null;
-            return { name, value, enabled: true, id: generateId() };
-        }).filter((h): h is Header => h !== null);
-
-        request.headers = newHeaders;
-
-        try {
-            const start = performance.now();
-            const response = await sendEphemeralRequest(request, null);
-            const elapsed = performance.now() - start;
-
-            const result: FuzzerResult = {
-                id: generateId(),
-                word,
-                status: response.status,
-                elapsed,
-                contentLength: response.contentLength || 0,
-                error: response.error || undefined,
-                timestamp: Date.now()
-            };
-
-            setResults(prev => [...prev, result]);
-        } catch (e) {
-            console.error("Fuzzer error", e);
-             const result: FuzzerResult = {
-                id: generateId(),
-                word,
-                status: 0,
-                elapsed: 0,
-                contentLength: 0,
-                error: String(e),
-                timestamp: Date.now()
-            };
-             setResults(prev => [...prev, result]);
-        }
+    try {
+      await runFuzzerRequests({
+        draftRequest,
+        markers,
+        rawHeaders,
+        words,
+        sendRequest: (request) => sendEphemeralRequest(request, null),
+        addResult: (result) => setResults((prev) => [...prev, result]),
+        generateId,
+        now: () => Date.now(),
+        nowPerf: () => performance.now(),
+      });
+    } finally {
+      setIsRunning(false);
     }
-    setIsRunning(false);
   };
 
   const getExtensionsForField = (field: FuzzerMarker['field']) => {
