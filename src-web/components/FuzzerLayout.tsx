@@ -1,11 +1,13 @@
-import type { HttpRequest } from '@yaakapp-internal/models';
+import type { HttpRequest, HttpResponse } from '@yaakapp-internal/models';
 import classNames from 'classnames';
 import { useAtom, useAtomValue } from 'jotai';
 import { atom } from 'jotai';
-import type { CSSProperties } from 'react';
-import { useState, useMemo, useRef } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { activeWorkspaceAtom } from '../hooks/useActiveWorkspace';
 import { invokeCmd } from '../lib/tauri';
+import { getResponseBodyText } from '../lib/responseBody';
 import { Button } from './core/Button';
 import { Editor } from './core/Editor/LazyEditor';
 import { Tabs, TabContent, type TabsRef } from './core/Tabs/Tabs';
@@ -36,6 +38,165 @@ export const fuzzerRawHeadersAtom = atomWithKVStorage<string>('fuzzer_raw_header
 interface Props {
   style?: CSSProperties;
   className?: string;
+}
+const syntaxTheme = {
+  'pre[class*="language-"]': {},
+  comment: { color: 'var(--textSubtle)' },
+  punctuation: { color: 'var(--textSubtle)' },
+  property: { color: 'var(--primary)' },
+  'attr-name': { color: 'var(--primary)' },
+  string: { color: 'var(--notice)' },
+  number: { color: 'var(--info)' },
+  boolean: { color: 'var(--warning)' },
+  operator: { color: 'var(--danger)' },
+  keyword: { color: 'var(--danger)' },
+} as const;
+
+function normalizeJson(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return null;
+  try {
+    return JSON.stringify(JSON.parse(trimmed), null, 2);
+  } catch {
+    return null;
+  }
+}
+
+function DetailCodeBlock({ language, content }: { language: string; content: string }) {
+  return (
+    <SyntaxHighlighter
+      language={language}
+      style={syntaxTheme}
+      customStyle={{
+        margin: 0,
+        background: 'transparent',
+        padding: 0,
+        fontSize: '0.75rem',
+        lineHeight: '1.4',
+      }}
+      wrapLongLines
+    >
+      {content}
+    </SyntaxHighlighter>
+  );
+}
+
+function FuzzerRequestDetailPanel({ request }: { request: HttpRequest | undefined }) {
+  if (request == null) {
+    return (
+      <div className="min-h-0 flex flex-col">
+        <div className="flex-none px-3 py-2 text-xs font-medium text-text-subtle border-b border-border-subtle">
+          Request
+        </div>
+        <div className="min-h-0 overflow-auto p-3 text-xs text-text-subtle">
+          Request snapshot unavailable for this result.
+        </div>
+      </div>
+    );
+  }
+
+  const requestLine = `${request.method} ${request.url} HTTP/1.1`;
+  const headersText = request.headers
+    .filter((header) => header.enabled !== false)
+    .map((header) => `${header.name}: ${header.value}`);
+  const bodyText = request.body?.text ?? '';
+  const normalizedBody = normalizeJson(bodyText);
+  const bodyLanguage = normalizedBody != null ? 'json' : 'http';
+  const bodyContent = normalizedBody ?? (bodyText.trim() === '' ? '(empty body)' : bodyText);
+
+  return (
+    <div className="min-h-0 flex flex-col">
+      <div className="flex-none px-3 py-2 text-xs font-medium text-text-subtle border-b border-border-subtle">
+        Request
+      </div>
+      <div className="min-h-0 overflow-auto">
+        <div className="px-3 py-2 border-b border-border-subtle">
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Start Line</div>
+          <DetailCodeBlock language="http" content={requestLine} />
+        </div>
+        <div className="px-3 py-2 border-b border-border-subtle">
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Headers</div>
+          <DetailCodeBlock
+            language="http"
+            content={headersText.length ? headersText.join('\n') : '(no headers)'}
+          />
+        </div>
+        <div className="px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Body</div>
+          <DetailCodeBlock language={bodyLanguage} content={bodyContent} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FuzzerResponseDetailPanel({
+  result,
+  responseBody,
+  responseBodyError,
+  isResponseBodyLoading,
+}: {
+  result: FuzzerResult;
+  responseBody: string | undefined;
+  responseBodyError: string | undefined;
+  isResponseBodyLoading: boolean;
+}) {
+  if (result.response == null) {
+    return (
+      <div className="min-h-0 flex flex-col">
+        <div className="flex-none px-3 py-2 text-xs font-medium text-text-subtle border-b border-border-subtle">
+          Response
+        </div>
+        <div className="min-h-0 overflow-auto p-3 text-xs text-danger">
+          {result.error ? `Error: ${result.error}` : 'Response snapshot unavailable for this result.'}
+        </div>
+      </div>
+    );
+  }
+
+  const response: HttpResponse = result.response;
+  const version = response.version ?? 'HTTP/1.1';
+  const statusReason = response.statusReason ?? '';
+  const statusLine = `${version} ${response.status}${statusReason ? ` ${statusReason}` : ''}`;
+  const headersText = response.headers.map((header) => `${header.name}: ${header.value}`).join('\n');
+
+  let bodyText = '';
+  let bodyLanguage = 'http';
+  if (isResponseBodyLoading) {
+    bodyText = 'Loading response body...';
+  } else if (responseBodyError) {
+    bodyText = `Failed to load response body: ${responseBodyError}`;
+  } else if (responseBody != null) {
+    const normalized = normalizeJson(responseBody);
+    bodyLanguage = normalized != null ? 'json' : 'http';
+    bodyText = normalized ?? responseBody;
+  } else if (result.error) {
+    bodyText = `Error: ${result.error}`;
+  } else {
+    bodyText = '(empty body)';
+  }
+
+  return (
+    <div className="min-h-0 flex flex-col">
+      <div className="flex-none px-3 py-2 text-xs font-medium text-text-subtle border-b border-border-subtle">
+        Response
+      </div>
+      <div className="min-h-0 overflow-auto">
+        <div className="px-3 py-2 border-b border-border-subtle">
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Status</div>
+          <DetailCodeBlock language="http" content={statusLine} />
+        </div>
+        <div className="px-3 py-2 border-b border-border-subtle">
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Headers</div>
+          <DetailCodeBlock language="http" content={headersText || '(no headers)'} />
+        </div>
+        <div className="px-3 py-2">
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Body</div>
+          <DetailCodeBlock language={bodyLanguage} content={bodyText} />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function FuzzerLayout({ style, className }: Props) {
@@ -160,6 +321,18 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
       setIsLocked(false);
   };
 
+  const handleNewRequest = () => {
+    setDraftRequest(null);
+    setMarkers([]);
+    setWordlist('');
+    setResults([]);
+    setRawHeaders('');
+    setIsLocked(false);
+    setFocusedField(null);
+    setShowCurlImport(false);
+    setCurlInput('');
+  };
+
   const handleRunFuzzer = async () => {
     if (!draftRequest || markers.length === 0 || !wordlist.trim() || activeWorkspace?.id == null) {
       return;
@@ -206,6 +379,9 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
             <div className="flex gap-2">
                 <Button size="sm" onClick={() => setShowCurlImport(true)} disabled={isLocked || isRunning}>
                 Parse from cURL
+                </Button>
+                <Button size="sm" variant="border" onClick={handleNewRequest} disabled={isRunning}>
+                New Request
                 </Button>
                 <div className="h-4 w-px bg-border-subtle mx-2" />
                 <Button
@@ -346,59 +522,209 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
 }
 
 function FuzzerResultsPane() {
-    const [results] = useAtom(fuzzerResultsAtom);
+  const [results] = useAtom(fuzzerResultsAtom);
+  const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
+  const [isDetailsPaneOpen, setIsDetailsPaneOpen] = useState(true);
+  const [responseBodies, setResponseBodies] = useState<Record<string, string>>({});
+  const [responseBodyErrors, setResponseBodyErrors] = useState<Record<string, string>>({});
+  const [loadingResponseBodyId, setLoadingResponseBodyId] = useState<string | null>(null);
 
-    const handleExport = () => {
-        const csv = [
-            'Word,Status,Size,Time,Error',
-            ...results.map(r => `"${r.word}",${r.status},${r.contentLength},${r.elapsed},"${r.error || ''}"`)
-        ].join('\n');
+  const selectedResult = useMemo(
+    () => results.find((result) => result.id === selectedResultId) ?? null,
+    [results, selectedResultId],
+  );
 
-        const blob = new Blob([csv], { type: 'text/csv' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `fuzzer-results-${Date.now()}.csv`;
-        a.click();
-        URL.revokeObjectURL(url);
+  useEffect(() => {
+    if (results.length === 0) {
+      setSelectedResultId(null);
+      setResponseBodies({});
+      setResponseBodyErrors({});
+      setLoadingResponseBodyId(null);
+      return;
+    }
+
+    if (selectedResultId == null || !results.some((result) => result.id === selectedResultId)) {
+      setSelectedResultId(results[0]?.id ?? null);
+      setIsDetailsPaneOpen(true);
+    }
+  }, [results, selectedResultId]);
+
+  useEffect(() => {
+    if (!isDetailsPaneOpen || selectedResult?.id == null || selectedResult.response == null) {
+      return;
+    }
+    if (selectedResult.response.bodyPath == null) {
+      return;
+    }
+    if (responseBodies[selectedResult.id] != null || responseBodyErrors[selectedResult.id] != null) {
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingResponseBodyId(selectedResult.id);
+
+    getResponseBodyText({ response: selectedResult.response, filter: null })
+      .then((content) => {
+        if (cancelled) return;
+        setResponseBodies((prev) => ({ ...prev, [selectedResult.id]: content ?? '' }));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setResponseBodyErrors((prev) => ({ ...prev, [selectedResult.id]: String(error) }));
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoadingResponseBodyId((prev) => (prev === selectedResult.id ? null : prev));
+      });
+
+    return () => {
+      cancelled = true;
     };
+  }, [isDetailsPaneOpen, selectedResult, responseBodies, responseBodyErrors]);
 
-    return (
-        <div className="h-full flex flex-col">
-             <div className="flex-none p-2 border-b border-border-subtle flex justify-end">
-                 <Button size="sm" variant="border" disabled={results.length === 0} onClick={handleExport}>
-                     Export Results
-                 </Button>
-             </div>
-             <div className="flex-1 overflow-auto">
-                <Table>
-                    <TableHead>
-                        <TableRow>
-                            <TableHeaderCell>Word</TableHeaderCell>
-                            <TableHeaderCell>Status</TableHeaderCell>
-                            <TableHeaderCell>Size</TableHeaderCell>
-                            <TableHeaderCell>Time</TableHeaderCell>
-                            <TableHeaderCell>Error</TableHeaderCell>
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {results.map(r => (
-                             <TableRow key={r.id}>
-                                <TableCell>{r.word}</TableCell>
-                                <TableCell>
-                                    <HttpStatusTagRaw status={r.status} />
-                                </TableCell>
-                                <TableCell>{r.contentLength}</TableCell>
-                                <TableCell>{r.elapsed.toFixed(0)}ms</TableCell>
-                                <TableCell className="text-danger">{r.error}</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-                {results.length === 0 && (
-                    <div className="p-4 text-center text-text-subtle">No results yet. Run the fuzzer to see results.</div>
-                )}
+  const handleSelectResult = (resultId: string) => {
+    setSelectedResultId(resultId);
+    setIsDetailsPaneOpen(true);
+  };
+
+  const handleResultsTableKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (results.length === 0) return;
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+
+    event.preventDefault();
+    const selectedIndex = selectedResultId
+      ? results.findIndex((result) => result.id === selectedResultId)
+      : -1;
+    const currentIndex = selectedIndex < 0 ? 0 : selectedIndex;
+    const delta = event.key === 'ArrowDown' ? 1 : -1;
+    const nextIndex = Math.max(0, Math.min(results.length - 1, currentIndex + delta));
+    const nextResult = results[nextIndex];
+    if (nextResult?.id == null) return;
+    handleSelectResult(nextResult.id);
+  };
+
+  const handleExport = () => {
+    const csv = [
+      'ID,Word,Status,Size,Time,Error',
+      ...results.map(
+        (result, index) =>
+          `${index + 1},\"${result.word}\",${result.status},${result.contentLength},${result.elapsed},\"${
+            result.error || ''
+          }\"`,
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fuzzer-results-${Date.now()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const responseBody = selectedResult ? responseBodies[selectedResult.id] : undefined;
+  const responseBodyError = selectedResult ? responseBodyErrors[selectedResult.id] : undefined;
+  const isResponseBodyLoading =
+    selectedResult != null && loadingResponseBodyId === selectedResult.id;
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex-none p-2 border-b border-border-subtle flex items-center justify-between">
+        <div className="text-xs text-text-subtle">Use ↑ and ↓ to browse result rows</div>
+        <HStack space={2}>
+          {selectedResult != null && !isDetailsPaneOpen && (
+            <Button size="sm" variant="border" onClick={() => setIsDetailsPaneOpen(true)}>
+              Show Details
+            </Button>
+          )}
+          <Button size="sm" variant="border" disabled={results.length === 0} onClick={handleExport}>
+            Export Results
+          </Button>
+        </HStack>
+      </div>
+      <div
+        className={classNames(
+          'flex-1 min-h-0 grid',
+          isDetailsPaneOpen && selectedResult != null
+            ? 'grid-rows-[minmax(0,1fr)_minmax(220px,45%)]'
+            : 'grid-rows-[minmax(0,1fr)]',
+        )}
+      >
+        <div
+          className="min-h-0 overflow-auto outline-none"
+          tabIndex={0}
+          role="grid"
+          aria-label="Fuzzer Results"
+          onKeyDown={handleResultsTableKeyDown}
+        >
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>#</TableHeaderCell>
+                <TableHeaderCell>Word</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+                <TableHeaderCell>Size</TableHeaderCell>
+                <TableHeaderCell>Time</TableHeaderCell>
+                <TableHeaderCell>Error</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {results.map((result, index) => {
+                const isSelected = selectedResultId === result.id;
+                return (
+                  <tr
+                    key={result.id}
+                    className={classNames(
+                      'cursor-pointer hocus:[&>td]:bg-surface-highlight/30',
+                      isSelected && '[&>td]:bg-primary/10 [&>td]:border-y [&>td]:border-border-focus',
+                    )}
+                    onClick={() => handleSelectResult(result.id)}
+                    aria-selected={isSelected}
+                  >
+                    <TableCell className={classNames('text-text-subtle', isSelected && 'font-semibold')}>
+                      {index + 1}
+                    </TableCell>
+                    <TableCell>{result.word}</TableCell>
+                    <TableCell>
+                      <HttpStatusTagRaw status={result.status} />
+                    </TableCell>
+                    <TableCell>{result.contentLength}</TableCell>
+                    <TableCell>{result.elapsed.toFixed(0)}ms</TableCell>
+                    <TableCell className="text-danger">{result.error}</TableCell>
+                  </tr>
+                );
+              })}
+            </TableBody>
+          </Table>
+          {results.length === 0 && (
+            <div className="p-4 text-center text-text-subtle">
+              No results yet. Run the fuzzer to see results.
             </div>
+          )}
         </div>
-    );
+        {isDetailsPaneOpen && selectedResult != null && (
+          <div className="min-h-0 border-t border-border-subtle bg-surface-subtle flex flex-col">
+            <div className="flex-none p-2 border-b border-border-subtle flex items-center justify-between">
+              <div className="text-xs text-text-subtle truncate">
+                Selected: <span className="text-text font-medium">{selectedResult.word}</span>
+              </div>
+              <Button size="2xs" variant="border" onClick={() => setIsDetailsPaneOpen(false)}>
+                Close
+              </Button>
+            </div>
+            <div className="flex-1 min-h-0 grid grid-cols-2 divide-x divide-border-subtle">
+              <FuzzerRequestDetailPanel request={selectedResult.request} />
+              <FuzzerResponseDetailPanel
+                result={selectedResult}
+                responseBody={responseBody}
+                responseBodyError={responseBodyError}
+                isResponseBodyLoading={isResponseBodyLoading}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
