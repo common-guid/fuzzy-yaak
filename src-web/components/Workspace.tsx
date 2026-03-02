@@ -28,9 +28,12 @@ import { useShouldFloatSidebar } from '../hooks/useShouldFloatSidebar';
 import { useSidebarHidden } from '../hooks/useSidebarHidden';
 import { useSidebarWidth } from '../hooks/useSidebarWidth';
 import { useSyncWorkspaceRequestTitle } from '../hooks/useSyncWorkspaceRequestTitle';
+import { useListenToTauriEvent } from '../hooks/useListenToTauriEvent';
 import { duplicateRequestOrFolderAndNavigate } from '../lib/duplicateRequestOrFolderAndNavigate';
 import { importData } from '../lib/importData';
 import { jotaiStore } from '../lib/jotai';
+import type { ModelPayload } from '@yaakapp-internal/models';
+import { fuzzerSessionsAtom } from './FuzzerLayout';
 import { CreateDropdown } from './CreateDropdown';
 import { FuzzerLayout } from './FuzzerLayout';
 import { Banner } from './core/Banner';
@@ -274,6 +277,18 @@ function useGlobalWorkspaceHooks() {
   useSubscribeRecentCookieJars();
 
   useSyncWorkspaceRequestTitle();
+
+  useListenToTauriEvent<ModelPayload>('model_write', ({ payload }) => {
+    if (payload.model.model === 'http_request' && payload.change.type === 'delete') {
+      const deletedId = payload.model.id;
+      jotaiStore.set(fuzzerSessionsAtom, (prev) => {
+        if (!(deletedId in prev)) return prev;
+        const next = { ...prev };
+        delete next[deletedId];
+        return next;
+      });
+    }
+  });
 
   useHotKey('model.duplicate', () =>
     duplicateRequestOrFolderAndNavigate(jotaiStore.get(activeRequestAtom)),

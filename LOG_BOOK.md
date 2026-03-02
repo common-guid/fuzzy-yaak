@@ -19,3 +19,8 @@ Implemented interactive fuzzer results so selecting a row (mouse or arrow keys) 
 ## Improve fuzzer results table readability and session controls | 2026-03-01
 Added stronger selected-row highlighting, a numeric incremental ID column, and syntax-highlighted request/response detail sections (start line, headers, body) to improve result inspection. Added a New Request action to reset the fuzzer session state (request + results + markers/wordlist) and validated with `npx vitest run src-web/components/fuzzer/runFuzzer.test.ts` and `npm --workspace @yaakapp/app run lint`.
   - src-web/components/FuzzerLayout.tsx
+## Fuzzer run loop request-scoped sessions | 2026-03-02
+Moved Fuzzer mode state to be scoped by request id instead of existing globally. Handled fuzzer "Parse from cURL" and "New Request" to create new requests correctly instead of clobbering existing fuzzer runs. Setup cleanup to ensure orphaned state is removed when requests are deleted. Regression testing complete via `runFuzzer.test.ts`.
+  - src-web/components/FuzzerLayout.tsx
+  - src-web/components/Workspace.tsx
+  - src-web/lib/createRequestAndNavigate.tsx

@@ -8,8 +8,10 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { activeWorkspaceAtom } from '../hooks/useActiveWorkspace';
 import { invokeCmd } from '../lib/tauri';
 import { getResponseBodyText } from '../lib/responseBody';
+import { createRequestAndNavigate } from '../lib/createRequestAndNavigate';
 import { Button } from './core/Button';
 import { Editor } from './core/Editor/LazyEditor';
+import { activeRequestIdAtom } from '../hooks/useActiveRequestId';
 import { Tabs, TabContent, type TabsRef } from './core/Tabs/Tabs';
 import { HStack } from './core/Stacks';
 import { Dialog } from './core/Dialog';
@@ -23,16 +25,17 @@ import { atomWithKVStorage } from '../lib/atoms/atomWithKVStorage';
 import { runFuzzerRequests, type FuzzerMarker, type FuzzerResult } from './fuzzer/runFuzzer';
 
 // Use atomWithKVStorage for persistence
-export const fuzzerDraftRequestAtom = atomWithKVStorage<HttpRequest | null>('fuzzer_draft_request', null);
-export const fuzzerMarkersAtom = atomWithKVStorage<FuzzerMarker[]>('fuzzer_markers', []);
-export const fuzzerWordlistAtom = atomWithKVStorage<string>('fuzzer_wordlist', '');
-export const fuzzerResultsAtom = atomWithKVStorage<FuzzerResult[]>('fuzzer_results', []);
-export const fuzzerIsLockedAtom = atomWithKVStorage<boolean>('fuzzer_is_locked', false);
-export const fuzzerIsRunningAtom = atom<boolean>(false);
+export interface FuzzerSessionState {
+  draftRequest: HttpRequest | null;
+  markers: FuzzerMarker[];
+  wordlist: string;
+  results: FuzzerResult[];
+  isLocked: boolean;
+  rawHeaders: string;
+}
 
-// Helper to store raw headers string in atom to survive reloads,
-// since we parse/unparse from HttpRequest which might lose exact formatting
-export const fuzzerRawHeadersAtom = atomWithKVStorage<string>('fuzzer_raw_headers', '');
+export const fuzzerSessionsAtom = atomWithKVStorage<Record<string, FuzzerSessionState>>('fuzzer_sessions', {});
+export const fuzzerIsRunningAtom = atom<Record<string, boolean>>({});
 
 
 interface Props {
@@ -234,16 +237,38 @@ export function FuzzerLayout({ style, className }: Props) {
 
 function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void }) {
   const activeWorkspace = useAtomValue(activeWorkspaceAtom);
-  const [draftRequest, setDraftRequest] = useAtom(fuzzerDraftRequestAtom);
-  const [markers, setMarkers] = useAtom(fuzzerMarkersAtom);
-  const [wordlist, setWordlist] = useAtom(fuzzerWordlistAtom);
-  const [isLocked, setIsLocked] = useAtom(fuzzerIsLockedAtom);
-  const [isRunning, setIsRunning] = useAtom(fuzzerIsRunningAtom);
-  const [, setResults] = useAtom(fuzzerResultsAtom); // results unused here
-  const [rawHeaders, setRawHeaders] = useAtom(fuzzerRawHeadersAtom);
+  const activeRequestId = useAtomValue(activeRequestIdAtom);
+  const [sessions, setSessions] = useAtom(fuzzerSessionsAtom);
+  const session = activeRequestId ? sessions[activeRequestId] : null;
+
+  const draftRequest = session?.draftRequest ?? null;
+  const markers = session?.markers ?? [];
+  const wordlist = session?.wordlist ?? '';
+  const isLocked = session?.isLocked ?? false;
+  const rawHeaders = session?.rawHeaders ?? '';
+
+  const [runningStates, setRunningStates] = useAtom(fuzzerIsRunningAtom);
+  const isRunning = activeRequestId ? !!runningStates[activeRequestId] : false;
 
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [curlInput, setCurlInput] = useState('');
+
+  const updateSession = (patch: Partial<FuzzerSessionState>) => {
+    if (!activeRequestId) return;
+    setSessions((prev) => ({
+      ...prev,
+      [activeRequestId]: {
+        draftRequest: null,
+        markers: [],
+        wordlist: '',
+        results: [],
+        isLocked: false,
+        rawHeaders: '',
+        ...(prev[activeRequestId] || {}),
+        ...patch,
+      },
+    }));
+  };
 
   const [urlEditorView, setUrlEditorView] = useState<EditorView | null>(null);
   const [headersEditorView, setHeadersEditorView] = useState<EditorView | null>(null);
@@ -262,26 +287,48 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         command: curlInput,
         workspaceId: activeWorkspace.id,
       });
-      setDraftRequest({ ...request, workspaceId: activeWorkspace.id });
 
-      // Initialize raw headers from imported request
-      const headersText = request.headers.map(h => `${h.name}: ${h.value}`).join('\n');
-      setRawHeaders(headersText);
+      // Name it something helpful, or use default import name
+      request.name = request.name || 'Imported cURL (Fuzzer)';
+
+      const newRequestId = await createRequestAndNavigate(request, { view: 'fuzzer' });
+      const headersText = request.headers.map((h) => `${h.name}: ${h.value}`).join('\n');
+
+      setSessions((prev) => ({
+        ...prev,
+        [newRequestId]: {
+          draftRequest: { ...request, workspaceId: activeWorkspace.id, id: newRequestId },
+          markers: [],
+          wordlist: '',
+          results: [],
+          isLocked: false,
+          rawHeaders: headersText,
+        },
+      }));
 
       setShowCurlImport(false);
       setCurlInput('');
-      setMarkers([]);
-      setIsLocked(false);
-      setResults([]);
     } catch (err) {
       console.error('Failed to import curl', err);
       // TODO: Show toast
     }
   };
 
+  const handleNewRequest = async () => {
+    if (activeWorkspace?.id == null) return;
+    try {
+      await createRequestAndNavigate(
+        { model: 'http_request', workspaceId: activeWorkspace.id, name: 'New Fuzzer Request' },
+        { view: 'fuzzer' }
+      );
+    } catch (err) {
+      console.error('Failed to create new request', err);
+    }
+  };
+
   const updateDraft = (patch: Partial<HttpRequest>) => {
     if (draftRequest) {
-        setDraftRequest({ ...draftRequest, ...patch });
+        updateSession({ draftRequest: { ...draftRequest, ...patch } });
     }
   };
 
@@ -311,35 +358,21 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
               end: selection.to,
               originalText: view.state.doc.sliceString(selection.from, selection.to),
           };
-          setMarkers([...markers, marker]);
-          setIsLocked(true);
+          updateSession({ markers: [...markers, marker], isLocked: true });
       }
   };
 
   const handleClearMarkers = () => {
-      setMarkers([]);
-      setIsLocked(false);
-  };
-
-  const handleNewRequest = () => {
-    setDraftRequest(null);
-    setMarkers([]);
-    setWordlist('');
-    setResults([]);
-    setRawHeaders('');
-    setIsLocked(false);
-    setFocusedField(null);
-    setShowCurlImport(false);
-    setCurlInput('');
+      updateSession({ markers: [], isLocked: false });
   };
 
   const handleRunFuzzer = async () => {
-    if (!draftRequest || markers.length === 0 || !wordlist.trim() || activeWorkspace?.id == null) {
+    if (!draftRequest || markers.length === 0 || !wordlist.trim() || activeWorkspace?.id == null || !activeRequestId) {
       return;
     }
 
-    setIsRunning(true);
-    setResults([]); // Clear previous run
+    setRunningStates((prev) => ({ ...prev, [activeRequestId]: true }));
+    updateSession({ results: [] }); // Clear previous run
     switchToResults();
 
     const words = wordlist.split('\n').map(w => w.trim()).filter(w => w);
@@ -350,14 +383,24 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
         rawHeaders,
         words,
         sendRequest: (request) => sendEphemeralRequest(request, null),
-        addResult: (result) => setResults((prev) => [...prev, result]),
+        addResult: (result) => setSessions((prev) => {
+          const session = prev[activeRequestId];
+          if (!session) return prev;
+          return {
+            ...prev,
+            [activeRequestId]: {
+              ...session,
+              results: [...session.results, result],
+            }
+          };
+        }),
         workspaceId: activeWorkspace.id,
         generateId,
         now: () => Date.now(),
         nowPerf: () => performance.now(),
       });
     } finally {
-      setIsRunning(false);
+      setRunningStates((prev) => ({ ...prev, [activeRequestId]: false }));
     }
   };
 
@@ -444,7 +487,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
                     <Editor
                         language={null} // Force plain text
                         defaultValue={rawHeaders}
-                        onChange={(text) => !isLocked && setRawHeaders(text)}
+                        onChange={(text) => !isLocked && updateSession({ rawHeaders: text })}
                         readOnly={isLocked || isRunning}
                         heightMode="full"
                         stateKey={`fuzzer.headers.${draftRequest.id}`}
@@ -486,10 +529,10 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
             <Editor
                 language="text"
                 defaultValue={wordlist}
-                onChange={setWordlist}
+                onChange={(text) => updateSession({ wordlist: text })}
                 placeholder="Enter wordlist (one per line)"
                 heightMode="full"
-                stateKey="fuzzer.wordlist"
+                stateKey={`fuzzer.wordlist.${activeRequestId || 'global'}`}
                 readOnly={isRunning}
             />
         </div>
@@ -522,7 +565,11 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
 }
 
 function FuzzerResultsPane() {
-  const [results] = useAtom(fuzzerResultsAtom);
+  const activeRequestId = useAtomValue(activeRequestIdAtom);
+  const [sessions] = useAtom(fuzzerSessionsAtom);
+  const session = activeRequestId ? sessions[activeRequestId] : null;
+  const results = session?.results ?? [];
+
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [isDetailsPaneOpen, setIsDetailsPaneOpen] = useState(true);
   const [responseBodies, setResponseBodies] = useState<Record<string, string>>({});
