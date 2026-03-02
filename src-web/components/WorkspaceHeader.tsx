@@ -4,6 +4,7 @@ import { memo } from 'react';
 import { activeWorkspaceAtom, activeWorkspaceMetaAtom } from '../hooks/useActiveWorkspace';
 import { useToggleCommandPalette } from '../hooks/useToggleCommandPalette';
 import { workspaceLayoutAtom } from '../lib/atoms';
+import { setWorkspaceSearchParams } from '../lib/setWorkspaceSearchParams';
 import { setupOrConfigureEncryption } from '../lib/setupOrConfigureEncryption';
 import { CookieDropdown } from './CookieDropdown';
 import { Icon } from './core/Icon';
@@ -54,6 +55,13 @@ export const WorkspaceHeader = memo(function WorkspaceHeader({ className }: Prop
       </div>
       <div className="flex-1 flex gap-1 items-center h-full justify-end pointer-events-none pr-1">
         <ImportCurlButton />
+        <IconButton
+          icon="sparkles"
+          title="Fuzzer"
+          size="sm"
+          iconColor="secondary"
+          onClick={() => setWorkspaceSearchParams({ view: 'fuzzer' })}
+        />
         {showEncryptionSetup ? (
           <PillButton color="danger" onClick={setupOrConfigureEncryption}>
             Enter Encryption Key

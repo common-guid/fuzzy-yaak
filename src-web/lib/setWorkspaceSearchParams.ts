@@ -13,6 +13,7 @@ export function setWorkspaceSearchParams(
     environment_id: string | null;
     request_id: string | null;
     folder_id: string | null;
+    view: 'fuzzer' | null;
   }>,
 ) {
   // biome-ignore lint/suspicious/noExplicitAny: none
