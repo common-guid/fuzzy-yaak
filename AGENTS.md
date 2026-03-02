@@ -15,3 +15,6 @@
 6. References:
   - DEVELOPMENT.md - notes on development setup
   - docs-links.txt - links to yaak documentation
+
+7. Tag safety: app releases use `v*` tags and CLI releases use `yaak-cli-*` tags; always confirm which one is requested before retagging.
+8. Do not commit, push, or tag without explicit approval
