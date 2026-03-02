@@ -655,9 +655,9 @@ function FuzzerResultsPane() {
       'ID,Word,Status,Size,Time,Error',
       ...results.map(
         (result, index) =>
-          `${index + 1},\"${result.word}\",${result.status},${result.contentLength},${result.elapsed},\"${
+          `${index + 1},"${result.word}",${result.status},${result.contentLength},${result.elapsed},"${
             result.error || ''
-          }\"`,
+          }"`,
       ),
     ].join('\n');
 
@@ -698,10 +698,12 @@ function FuzzerResultsPane() {
             : 'grid-rows-[minmax(0,1fr)]',
         )}
       >
+        {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: intentionally making this div focusable to capture arrow keys for table navigation */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: intentionally making this div focusable to capture arrow keys for table navigation */}
         <div
           className="min-h-0 overflow-auto outline-none"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: intentionally making this div focusable to capture arrow keys for table navigation
           tabIndex={0}
-          role="grid"
           aria-label="Fuzzer Results"
           onKeyDown={handleResultsTableKeyDown}
         >

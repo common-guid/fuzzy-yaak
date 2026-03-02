@@ -8,6 +8,7 @@ export async function createRequestAndNavigate<
   T extends HttpRequest | GrpcRequest | WebsocketRequest,
 >(
   patch: Partial<T> & Pick<T, 'model' | 'workspaceId'>,
+  // biome-ignore lint/suspicious/noExplicitAny: Record<string, any> is intentional here
   searchOverrides?: Record<string, any>
 ) {
   const activeRequest = jotaiStore.get(activeRequestAtom);
