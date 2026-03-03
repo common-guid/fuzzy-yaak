@@ -5,6 +5,7 @@ mod plugin_events;
 mod ui;
 mod utils;
 mod version;
+mod version_check;
 
 use clap::Parser;
 use cli::{Cli, Commands, RequestCommands};
@@ -31,6 +32,8 @@ async fn main() {
     let data_dir = data_dir.unwrap_or_else(|| {
         dirs::data_dir().expect("Could not determine data directory").join(app_id)
     });
+
+    version_check::maybe_check_for_updates().await;
 
     let needs_context = matches!(
         &command,
@@ -60,6 +63,8 @@ async fn main() {
         Commands::Plugin(args) => commands::plugin::run(args).await,
         Commands::Build(args) => commands::plugin::run_build(args).await,
         Commands::Dev(args) => commands::plugin::run_dev(args).await,
+        Commands::Generate(args) => commands::plugin::run_generate(args).await,
+        Commands::Publish(args) => commands::plugin::run_publish(args).await,
         Commands::Send(args) => {
             commands::send::run(
                 context.as_ref().expect("context initialized for send"),
