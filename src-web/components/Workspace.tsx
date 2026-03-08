@@ -32,10 +32,9 @@ import { useListenToTauriEvent } from '../hooks/useListenToTauriEvent';
 import { duplicateRequestOrFolderAndNavigate } from '../lib/duplicateRequestOrFolderAndNavigate';
 import { importData } from '../lib/importData';
 import { jotaiStore } from '../lib/jotai';
+import { invokeCmd } from '../lib/tauri';
 import type { ModelPayload } from '@yaakapp-internal/models';
-import { fuzzerSessionsAtom } from './FuzzerLayout';
 import { CreateDropdown } from './CreateDropdown';
-import { FuzzerLayout } from './FuzzerLayout';
 import { Banner } from './core/Banner';
 import { Button } from './core/Button';
 import { HotkeyList } from './core/HotkeyList';
@@ -227,10 +226,6 @@ function WorkspaceBody() {
     );
   }
 
-  if (view === 'fuzzer') {
-    return <FuzzerLayout style={body} />;
-  }
-
   if (activeRequest?.model === 'grpc_request') {
     return <GrpcConnectionLayout style={body} />;
   }
@@ -278,15 +273,16 @@ function useGlobalWorkspaceHooks() {
 
   useSyncWorkspaceRequestTitle();
 
-  useListenToTauriEvent<ModelPayload>('model_write', ({ payload }) => {
+  useListenToTauriEvent<ModelPayload>('model_write', async ({ payload }) => {
     if (payload.model.model === 'http_request' && payload.change.type === 'delete') {
       const deletedId = payload.model.id;
-      jotaiStore.set(fuzzerSessionsAtom, (prev) => {
-        if (!(deletedId in prev)) return prev;
-        const next = { ...prev };
-        delete next[deletedId];
-        return next;
-      });
+      try {
+        await invokeCmd('cmd_delete_key_value', {
+          key: JSON.stringify(['fuzzer_session', deletedId])
+        });
+      } catch (err) {
+        console.error('Failed to clean up fuzzer state for deleted request', err);
+      }
     }
   });
 

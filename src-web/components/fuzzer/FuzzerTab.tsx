@@ -5,36 +5,59 @@ import { atom } from 'jotai';
 import type { CSSProperties, KeyboardEvent } from 'react';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { activeWorkspaceAtom } from '../hooks/useActiveWorkspace';
-import { invokeCmd } from '../lib/tauri';
-import { getResponseBodyText } from '../lib/responseBody';
-import { createRequestAndNavigate } from '../lib/createRequestAndNavigate';
-import { Button } from './core/Button';
-import { Editor } from './core/Editor/LazyEditor';
-import { activeRequestIdAtom } from '../hooks/useActiveRequestId';
-import { Tabs, TabContent, type TabsRef } from './core/Tabs/Tabs';
-import { HStack } from './core/Stacks';
-import { Dialog } from './core/Dialog';
-import { fuzzerMarkersExtension } from './fuzzer/FuzzerEditorExtensions';
+import { activeWorkspaceAtom } from '../../hooks/useActiveWorkspace';
+import { invokeCmd } from '../../lib/tauri';
+import { getResponseBodyText } from '../../lib/responseBody';
+import { createRequestAndNavigate } from '../../lib/createRequestAndNavigate';
+import { Button } from '../core/Button';
+import { Editor } from '../core/Editor/LazyEditor';
+import { Tabs, TabContent, type TabsRef } from '../core/Tabs/Tabs';
+import { HStack } from '../core/Stacks';
+import { Dialog } from '../core/Dialog';
+import { fuzzerMarkersExtension } from './FuzzerEditorExtensions';
 import type { EditorView } from '@codemirror/view';
-import { generateId } from '../lib/generateId';
-import { sendEphemeralRequest } from '../lib/sendEphemeralRequest';
-import { Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from './core/Table';
-import { HttpStatusTagRaw } from './core/HttpStatusTag';
-import { atomWithKVStorage } from '../lib/atoms/atomWithKVStorage';
-import { runFuzzerRequests, type FuzzerMarker, type FuzzerResult } from './fuzzer/runFuzzer';
+import { generateId } from '../../lib/generateId';
+import { sendEphemeralRequest } from '../../lib/sendEphemeralRequest';
+import { Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from '../core/Table';
+import { HttpStatusTagRaw } from '../core/HttpStatusTag';
+import { atomWithKVStorage } from '../../lib/atoms/atomWithKVStorage';
+import { runFuzzerRequests, type FuzzerMarker, type FuzzerResult } from './runFuzzer';
+import { patchModel } from '@yaakapp-internal/models';
 
-// Use atomWithKVStorage for persistence
-export interface FuzzerSessionState {
-  draftRequest: HttpRequest | null;
+export interface FuzzerRun {
+  id: string;
+  requestSnapshot: HttpRequest;
   markers: FuzzerMarker[];
   wordlist: string;
   results: FuzzerResult[];
-  isLocked: boolean;
-  rawHeaders: string;
+  createdAt: number;
 }
 
-export const fuzzerSessionsAtom = atomWithKVStorage<Record<string, FuzzerSessionState>>('fuzzer_sessions', {});
+export interface FuzzerSessionState {
+  markers: FuzzerMarker[];
+  wordlist: string;
+  isLocked: boolean;
+  runs: FuzzerRun[];
+}
+
+const defaultSessionState: FuzzerSessionState = {
+  markers: [],
+  wordlist: '',
+  isLocked: false,
+  runs: [],
+};
+
+const sessionAtoms = new Map<string, ReturnType<typeof atomWithKVStorage<FuzzerSessionState>>>();
+
+export function getFuzzerSessionAtom(requestId: string) {
+  let a = sessionAtoms.get(requestId);
+  if (!a) {
+    a = atomWithKVStorage<FuzzerSessionState>(['fuzzer_session', requestId], defaultSessionState);
+    sessionAtoms.set(requestId, a);
+  }
+  return a;
+}
+
 export const fuzzerIsRunningAtom = atom<Record<string, boolean>>({});
 
 
@@ -202,17 +225,21 @@ function FuzzerResponseDetailPanel({
   );
 }
 
-export function FuzzerLayout({ style, className }: Props) {
+interface FuzzerTabProps {
+  activeRequest: HttpRequest;
+  className?: string;
+  style?: CSSProperties;
+}
+
+export function FuzzerTab({ activeRequest, className, style }: FuzzerTabProps) {
   const tabsRef = useRef<TabsRef>(null);
 
-  // We don't need activeTab state unless we render differently based on it,
-  // but Tabs handles content switching.
   const switchToResults = () => {
       tabsRef.current?.setActiveTab('results');
   };
 
   return (
-    <div style={style} className={classNames(className, 'h-full flex flex-col bg-surface')}>
+    <div style={style} className={classNames(className, 'h-full flex flex-col')}>
       <Tabs
         ref={tabsRef}
         defaultValue="request"
@@ -225,49 +252,76 @@ export function FuzzerLayout({ style, className }: Props) {
         tabListClassName="px-2 border-b border-border-subtle"
       >
         <TabContent value="request">
-          <FuzzerRequestPane switchToResults={switchToResults} />
+          <FuzzerRequestPane activeRequest={activeRequest} switchToResults={switchToResults} />
         </TabContent>
         <TabContent value="results">
-          <FuzzerResultsPane />
+          <FuzzerResultsPane activeRequest={activeRequest} />
         </TabContent>
       </Tabs>
     </div>
   );
 }
 
-function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void }) {
+function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: HttpRequest, switchToResults: () => void }) {
   const activeWorkspace = useAtomValue(activeWorkspaceAtom);
-  const activeRequestId = useAtomValue(activeRequestIdAtom);
-  const [sessions, setSessions] = useAtom(fuzzerSessionsAtom);
-  const session = activeRequestId ? sessions[activeRequestId] : null;
+  const activeRequestId = activeRequest.id;
+  const sessionAtom = useMemo(() => getFuzzerSessionAtom(activeRequestId), [activeRequestId]);
+  const [session, setSession] = useAtom(sessionAtom);
 
-  const draftRequest = session?.draftRequest ?? null;
   const markers = session?.markers ?? [];
   const wordlist = session?.wordlist ?? '';
   const isLocked = session?.isLocked ?? false;
-  const rawHeaders = session?.rawHeaders ?? '';
+  const rawHeaders = activeRequest.headers.map((h) => `${h.name}: ${h.value}`).join('\n');
 
   const [runningStates, setRunningStates] = useAtom(fuzzerIsRunningAtom);
-  const isRunning = activeRequestId ? !!runningStates[activeRequestId] : false;
-
-  const [showCurlImport, setShowCurlImport] = useState(false);
-  const [curlInput, setCurlInput] = useState('');
+  const isRunning = !!runningStates[activeRequestId];
 
   const updateSession = (patch: Partial<FuzzerSessionState>) => {
-    if (!activeRequestId) return;
-    setSessions((prev) => ({
+    setSession((prev) => ({
+      ...defaultSessionState,
       ...prev,
-      [activeRequestId]: {
-        draftRequest: null,
-        markers: [],
-        wordlist: '',
-        results: [],
-        isLocked: false,
-        rawHeaders: '',
-        ...(prev[activeRequestId] || {}),
-        ...patch,
-      },
+      ...patch,
     }));
+  };
+
+  const handleUpdateActiveRequest = async (patch: Partial<HttpRequest>) => {
+    if (activeRequest) {
+        await patchModel(activeRequest, patch);
+    }
+  };
+
+  const handleHeadersChange = (text: string) => {
+    if (isLocked) return;
+    const lines = text.split('\n');
+    const oldHeaders = activeRequest.headers;
+    const newHeaders = lines.map((line, index) => {
+        const colonIndex = line.indexOf(':');
+        let name = line.trim();
+        let value = '';
+        if (colonIndex > 0) {
+            name = line.slice(0, colonIndex).trim();
+            value = line.slice(colonIndex + 1).trim();
+        }
+
+        const oldHeader = oldHeaders[index];
+        if (oldHeader && oldHeader.name === name) {
+            return { ...oldHeader, value };
+        }
+
+        const existingHeader = oldHeaders.find(h => h.name === name);
+        if (existingHeader) {
+            return { ...existingHeader, value };
+        }
+
+        return {
+            id: generateId(),
+            name,
+            value,
+            enabled: true
+        };
+    }).filter(h => h.name || h.value);
+
+    handleUpdateActiveRequest({ headers: newHeaders });
   };
 
   const [urlEditorView, setUrlEditorView] = useState<EditorView | null>(null);
@@ -276,61 +330,6 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
 
   // Track focused field to know where to apply marker
   const [focusedField, setFocusedField] = useState<'url' | 'body' | 'headers' | null>(null);
-
-  const handleImportCurl = async () => {
-    if (activeWorkspace?.id == null) {
-      console.error('Cannot import curl for fuzzer: no active workspace');
-      return;
-    }
-    try {
-      const request: HttpRequest = await invokeCmd('cmd_curl_to_request', {
-        command: curlInput,
-        workspaceId: activeWorkspace.id,
-      });
-
-      // Name it something helpful, or use default import name
-      request.name = request.name || 'Imported cURL (Fuzzer)';
-
-      const newRequestId = await createRequestAndNavigate(request, { view: 'fuzzer' });
-      const headersText = request.headers.map((h) => `${h.name}: ${h.value}`).join('\n');
-
-      setSessions((prev) => ({
-        ...prev,
-        [newRequestId]: {
-          draftRequest: { ...request, workspaceId: activeWorkspace.id, id: newRequestId },
-          markers: [],
-          wordlist: '',
-          results: [],
-          isLocked: false,
-          rawHeaders: headersText,
-        },
-      }));
-
-      setShowCurlImport(false);
-      setCurlInput('');
-    } catch (err) {
-      console.error('Failed to import curl', err);
-      // TODO: Show toast
-    }
-  };
-
-  const handleNewRequest = async () => {
-    if (activeWorkspace?.id == null) return;
-    try {
-      await createRequestAndNavigate(
-        { model: 'http_request', workspaceId: activeWorkspace.id, name: 'New Fuzzer Request' },
-        { view: 'fuzzer' }
-      );
-    } catch (err) {
-      console.error('Failed to create new request', err);
-    }
-  };
-
-  const updateDraft = (patch: Partial<HttpRequest>) => {
-    if (draftRequest) {
-        updateSession({ draftRequest: { ...draftRequest, ...patch } });
-    }
-  };
 
   const handleMarkSelection = () => {
       let view: EditorView | null = null;
@@ -367,33 +366,38 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   };
 
   const handleRunFuzzer = async () => {
-    if (!draftRequest || markers.length === 0 || !wordlist.trim() || activeWorkspace?.id == null || !activeRequestId) {
+    if (markers.length === 0 || !wordlist.trim() || activeWorkspace?.id == null) {
       return;
     }
 
     setRunningStates((prev) => ({ ...prev, [activeRequestId]: true }));
-    updateSession({ results: [] }); // Clear previous run
+
+    const runId = generateId();
+    const newRun: FuzzerRun = {
+      id: runId,
+      requestSnapshot: activeRequest,
+      markers,
+      wordlist,
+      results: [],
+      createdAt: Date.now(),
+    };
+
+    updateSession({ runs: [newRun, ...session.runs] });
+
     switchToResults();
 
     const words = wordlist.split('\n').map(w => w.trim()).filter(w => w);
     try {
       await runFuzzerRequests({
-        draftRequest,
+        draftRequest: activeRequest,
         markers,
         rawHeaders,
         words,
         sendRequest: (request) => sendEphemeralRequest(request, null),
-        addResult: (result) => setSessions((prev) => {
-          const session = prev[activeRequestId];
-          if (!session) return prev;
-          return {
+        addResult: (result) => setSession((prev) => ({
             ...prev,
-            [activeRequestId]: {
-              ...session,
-              results: [...session.results, result],
-            }
-          };
-        }),
+            runs: prev.runs.map((r) => r.id === runId ? { ...r, results: [...r.results, result] } : r)
+        })),
         workspaceId: activeWorkspace.id,
         generateId,
         now: () => Date.now(),
@@ -420,16 +424,9 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
       <div className="flex flex-col min-w-0 h-full">
         <div className="p-2 border-b border-border-subtle flex gap-2 items-center justify-between">
             <div className="flex gap-2">
-                <Button size="sm" onClick={() => setShowCurlImport(true)} disabled={isLocked || isRunning}>
-                Parse from cURL
-                </Button>
-                <Button size="sm" variant="border" onClick={handleNewRequest} disabled={isRunning}>
-                New Request
-                </Button>
-                <div className="h-4 w-px bg-border-subtle mx-2" />
                 <Button
                     size="sm"
-                    disabled={!draftRequest || isRunning}
+                    disabled={isRunning}
                     onClick={handleMarkSelection}
                     variant="border"
                 >
@@ -446,7 +443,6 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
                 size="sm"
                 color="primary"
                 disabled={
-                  !draftRequest ||
                   markers.length === 0 ||
                   !wordlist.trim() ||
                   isRunning ||
@@ -458,21 +454,21 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
              </Button>
         </div>
 
-        {draftRequest ? (
-          <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
+        <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
              {/* URL Editor */}
              {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
              <div className="p-2 border-b border-border-subtle" onFocus={() => setFocusedField('url')}>
                 <div className="text-xs text-text-subtle mb-1">URL</div>
                 <div className="border border-border-subtle rounded overflow-hidden">
                     <Editor
+                        forceUpdateKey={`fuzzer_url_${activeRequest.id}`}
                         language="url"
                         singleLine
-                        defaultValue={draftRequest.url}
-                        onChange={(url) => !isLocked && updateDraft({ url })}
+                        defaultValue={activeRequest.url}
+                        onChange={(url) => handleUpdateActiveRequest({ url })}
                         readOnly={isLocked || isRunning}
                         heightMode="auto"
-                        stateKey={`fuzzer.url.${draftRequest.id}`}
+                        stateKey={`fuzzer.url.${activeRequest.id}`}
                         setRef={setUrlEditorView}
                         extraExtensions={getExtensionsForField('url')}
                     />
@@ -485,12 +481,13 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
                 <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Headers (Raw)</div>
                 <div className="flex-1 relative">
                     <Editor
+                        forceUpdateKey={`fuzzer_headers_${activeRequest.id}`}
                         language={null} // Force plain text
                         defaultValue={rawHeaders}
-                        onChange={(text) => !isLocked && updateSession({ rawHeaders: text })}
+                        onChange={handleHeadersChange}
                         readOnly={isLocked || isRunning}
                         heightMode="full"
-                        stateKey={`fuzzer.headers.${draftRequest.id}`}
+                        stateKey={`fuzzer.headers.${activeRequest.id}`}
                         setRef={setHeadersEditorView}
                         extraExtensions={getExtensionsForField('headers')}
                     />
@@ -503,23 +500,19 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
                   <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Body</div>
                   <div className="flex-1 relative">
                     <Editor
+                        forceUpdateKey={`fuzzer_body_${activeRequest.id}`}
                         language="json"
-                        defaultValue={draftRequest.body?.text ?? ''}
-                        onChange={(text) => !isLocked && updateDraft({ body: { ...draftRequest.body, text } })}
+                        defaultValue={activeRequest.body?.text ?? ''}
+                        onChange={(text) => handleUpdateActiveRequest({ body: { ...activeRequest.body, text } })}
                         readOnly={isLocked || isRunning}
                         heightMode="full"
-                        stateKey={`fuzzer.body.${draftRequest.id}`}
+                        stateKey={`fuzzer.body.${activeRequest.id}`}
                         setRef={setBodyEditorView}
                         extraExtensions={getExtensionsForField('body')}
                     />
                   </div>
               </div>
           </div>
-        ) : (
-          <div className="flex-1 flex items-center justify-center text-text-subtle">
-            Import a cURL command to start fuzzing
-          </div>
-        )}
       </div>
 
       {/* Right: Wordlist & Settings */}
@@ -537,38 +530,27 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
             />
         </div>
       </div>
-
-      {/* Curl Import Dialog */}
-      <Dialog
-        open={showCurlImport}
-        onClose={() => setShowCurlImport(false)}
-        title="Import cURL"
-      >
-        <div className="flex flex-col gap-3 min-w-[500px]">
-            <Editor
-                language={null} // Plain text for curl paste
-                defaultValue={curlInput}
-                onChange={setCurlInput}
-                heightMode="auto"
-                className="min-h-[200px] border border-border-subtle rounded"
-                placeholder="curl -X POST https://api.example.com/..."
-                stateKey="fuzzer.curl_import"
-            />
-            <HStack justifyContent="end" space={2}>
-                <Button variant="border" onClick={() => setShowCurlImport(false)}>Cancel</Button>
-                <Button color="primary" onClick={handleImportCurl} disabled={!curlInput.trim()}>Import</Button>
-            </HStack>
-        </div>
-      </Dialog>
     </div>
   );
 }
 
-function FuzzerResultsPane() {
-  const activeRequestId = useAtomValue(activeRequestIdAtom);
-  const [sessions] = useAtom(fuzzerSessionsAtom);
-  const session = activeRequestId ? sessions[activeRequestId] : null;
-  const results = session?.results ?? [];
+function FuzzerResultsPane({ activeRequest }: { activeRequest: HttpRequest }) {
+  const activeRequestId = activeRequest.id;
+  const sessionAtom = useMemo(() => getFuzzerSessionAtom(activeRequestId), [activeRequestId]);
+  const [session] = useAtom(sessionAtom);
+  const runs = session?.runs ?? [];
+
+  const [selectedRunId, setSelectedRunId] = useState<string | null>(runs[0]?.id ?? null);
+
+  // Auto-select the latest run when a new run is prepended
+  useEffect(() => {
+    if (runs.length > 0 && runs[0].id !== selectedRunId) {
+      setSelectedRunId(runs[0].id);
+    }
+  }, [runs, selectedRunId]);
+
+  const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? runs[0] ?? null, [runs, selectedRunId]);
+  const results = selectedRun?.results ?? [];
 
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [isDetailsPaneOpen, setIsDetailsPaneOpen] = useState(true);
@@ -678,7 +660,25 @@ function FuzzerResultsPane() {
   return (
     <div className="h-full flex flex-col">
       <div className="flex-none p-2 border-b border-border-subtle flex items-center justify-between">
-        <div className="text-xs text-text-subtle">Use ↑ and ↓ to browse result rows</div>
+        <HStack space={2}>
+          <select
+            className="bg-surface text-text text-sm border border-border-subtle rounded px-2 py-1 outline-none focus:border-border-focus transition-colors"
+            value={selectedRun?.id ?? ''}
+            onChange={(e) => setSelectedRunId(e.target.value)}
+            disabled={runs.length === 0}
+          >
+            {runs.length === 0 ? (
+              <option value="">No runs yet</option>
+            ) : (
+              runs.map((run, i) => (
+                <option key={run.id} value={run.id}>
+                  Run {runs.length - i} ({new Date(run.createdAt).toLocaleTimeString()}) - {run.results.length} results
+                </option>
+              ))
+            )}
+          </select>
+          <div className="text-xs text-text-subtle ml-2">Use ↑ and ↓ to browse result rows</div>
+        </HStack>
         <HStack space={2}>
           {selectedResult != null && !isDetailsPaneOpen && (
             <Button size="sm" variant="border" onClick={() => setIsDetailsPaneOpen(true)}>
