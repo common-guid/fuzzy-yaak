@@ -542,12 +542,14 @@ function FuzzerResultsPane({ activeRequest }: { activeRequest: HttpRequest }) {
 
   const [selectedRunId, setSelectedRunId] = useState<string | null>(runs[0]?.id ?? null);
 
+  const latestRunId = runs[0]?.id;
+
   // Auto-select the latest run when a new run is prepended
   useEffect(() => {
-    if (runs.length > 0 && runs[0].id !== selectedRunId) {
-      setSelectedRunId(runs[0].id);
+    if (latestRunId) {
+      setSelectedRunId(latestRunId);
     }
-  }, [runs, selectedRunId]);
+  }, [latestRunId]);
 
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? runs[0] ?? null, [runs, selectedRunId]);
   const results = selectedRun?.results ?? [];

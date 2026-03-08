@@ -32,7 +32,8 @@ import { useListenToTauriEvent } from '../hooks/useListenToTauriEvent';
 import { duplicateRequestOrFolderAndNavigate } from '../lib/duplicateRequestOrFolderAndNavigate';
 import { importData } from '../lib/importData';
 import { jotaiStore } from '../lib/jotai';
-import { invokeCmd } from '../lib/tauri';
+import { getKeyValueRaw } from '../lib/keyValueStore';
+import { deleteModel } from '@yaakapp-internal/models';
 import type { ModelPayload } from '@yaakapp-internal/models';
 import { CreateDropdown } from './CreateDropdown';
 import { Banner } from './core/Banner';
@@ -207,8 +208,6 @@ function WorkspaceBody() {
   const activeFolder = useAtomValue(activeFolderAtom);
   const activeWorkspace = useAtomValue(activeWorkspaceAtom);
 
-  const { view } = useSearch({ strict: false });
-
   if (activeWorkspace == null) {
     return (
       <m.div
@@ -277,9 +276,10 @@ function useGlobalWorkspaceHooks() {
     if (payload.model.model === 'http_request' && payload.change.type === 'delete') {
       const deletedId = payload.model.id;
       try {
-        await invokeCmd('cmd_delete_key_value', {
-          key: JSON.stringify(['fuzzer_session', deletedId])
-        });
+        const kv = getKeyValueRaw({ key: ['fuzzer_session', deletedId] });
+        if (kv) {
+            await deleteModel(kv);
+        }
       } catch (err) {
         console.error('Failed to clean up fuzzer state for deleted request', err);
       }
