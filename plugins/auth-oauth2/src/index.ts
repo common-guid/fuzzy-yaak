@@ -6,7 +6,11 @@ import type {
   PluginDefinition,
 } from '@yaakapp/api';
 import type { Algorithm } from 'jsonwebtoken';
-import { DEFAULT_LOCALHOST_PORT, HOSTED_CALLBACK_URL, stopActiveServer } from './callbackServer';
+import {
+  buildHostedCallbackRedirectUri,
+  DEFAULT_LOCALHOST_PORT,
+  stopActiveServer,
+} from './callbackServer';
 import {
   type CallbackType,
   DEFAULT_PKCE_METHOD,
@@ -300,8 +304,7 @@ export const plugin: PluginDefinition = {
                 optional: true,
                 dynamic: hiddenIfNot(
                   ['authorization_code', 'implicit'],
-                  ({ useExternalBrowser, callbackType }) =>
-                    !!useExternalBrowser && callbackType === 'localhost',
+                  ({ useExternalBrowser }) => !!useExternalBrowser,
                 ),
               },
             ],
@@ -328,11 +331,11 @@ export const plugin: PluginDefinition = {
                   }
 
                   // Compute the redirect URI based on callback type
+                  const port = intArg(values, 'callbackPort') || DEFAULT_LOCALHOST_PORT;
                   let redirectUri: string;
                   if (callbackType === 'hosted') {
-                    redirectUri = HOSTED_CALLBACK_URL;
+                    redirectUri = buildHostedCallbackRedirectUri(port);
                   } else {
-                    const port = intArg(values, 'callbackPort') || DEFAULT_LOCALHOST_PORT;
                     redirectUri = `http://127.0.0.1:${port}/callback`;
                   }
 

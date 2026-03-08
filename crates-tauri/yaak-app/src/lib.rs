@@ -34,6 +34,7 @@ use tokio::time;
 use yaak_common::command::new_checked_command;
 use yaak_crypto::manager::EncryptionManager;
 use yaak_grpc::manager::{GrpcConfig, GrpcHandle};
+use yaak_templates::strip_json_comments::strip_json_comments;
 use yaak_grpc::{Code, ServiceDefinition, serialize_message};
 use yaak_mac_window::AppHandleMacWindowExt;
 use yaak_models::models::{
@@ -131,11 +132,7 @@ async fn cmd_metadata(app_handle: AppHandle) -> YaakResult<AppMetaData> {
 }
 
 async fn detect_cli_version() -> Option<String> {
-    // Prefer `yaak`, but support the legacy `yaakcli` alias if present.
-    if let Some(version) = detect_cli_version_for_binary("yaak").await {
-        return Some(version);
-    }
-    detect_cli_version_for_binary("yaakcli").await
+    detect_cli_version_for_binary("yaak").await
 }
 
 async fn detect_cli_version_for_binary(program: &str) -> Option<String> {
@@ -437,6 +434,7 @@ async fn cmd_grpc_go<R: Runtime>(
                             result.expect("Failed to render template")
                         })
                     });
+                    let msg = strip_json_comments(&msg);
                     in_msg_tx.try_send(msg.clone()).unwrap();
                 }
                 Ok(IncomingMsg::Commit) => {
@@ -472,6 +470,7 @@ async fn cmd_grpc_go<R: Runtime>(
             &RenderOptions { error_behavior: RenderErrorBehavior::Throw },
         )
         .await?;
+        let msg = strip_json_comments(&msg);
 
         app_handle.db().upsert_grpc_event(
             &GrpcEvent {
@@ -871,6 +870,14 @@ async fn cmd_send_ephemeral_request<R: Runtime>(
 #[tauri::command]
 async fn cmd_format_json(text: &str) -> YaakResult<String> {
     Ok(format_json(text, "  "))
+}
+
+#[tauri::command]
+async fn cmd_format_graphql(text: &str) -> YaakResult<String> {
+    match pretty_graphql::format_text(text, &Default::default()) {
+        Ok(formatted) => Ok(formatted),
+        Err(_) => Ok(text.to_string()),
+    }
 }
 
 #[tauri::command]
@@ -1642,6 +1649,7 @@ pub fn run() {
             cmd_http_request_body,
             cmd_http_response_body,
             cmd_format_json,
+            cmd_format_graphql,
             cmd_get_http_authentication_summaries,
             cmd_get_http_authentication_config,
             cmd_get_sse_events,
