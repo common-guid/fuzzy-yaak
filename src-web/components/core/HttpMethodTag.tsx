@@ -25,9 +25,14 @@ const methodNames: Record<string, string> = {
   websocket: 'WS',
 };
 
-export const HttpMethodTag = memo(function HttpMethodTag({ request, className, short, noAlias }: Props) {
+export const HttpMethodTag = memo(function HttpMethodTag({
+  request,
+  className,
+  short,
+  noAlias,
+}: Props) {
   const method =
-    request.model === 'http_request' && (request.bodyType === 'graphql' && !noAlias)
+    request.model === 'http_request' && request.bodyType === 'graphql' && !noAlias
       ? 'graphql'
       : request.model === 'grpc_request'
         ? 'grpc'

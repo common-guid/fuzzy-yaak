@@ -41,7 +41,9 @@ export function HeadersEditor({
   const validInheritedHeaders =
     inheritedHeaders?.filter(
       (pair) =>
-        pair.enabled && (pair.name || pair.value) && !currentHeaderNames.has(pair.name.toLowerCase()),
+        pair.enabled &&
+        (pair.name || pair.value) &&
+        !currentHeaderNames.has(pair.name.toLowerCase()),
     ) ?? [];
   const hasInheritedHeaders = validInheritedHeaders.length > 0;
   return (

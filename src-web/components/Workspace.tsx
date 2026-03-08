@@ -32,7 +32,6 @@ import { duplicateRequestOrFolderAndNavigate } from '../lib/duplicateRequestOrFo
 import { importData } from '../lib/importData';
 import { jotaiStore } from '../lib/jotai';
 import { CreateDropdown } from './CreateDropdown';
-import { FuzzerLayout } from './FuzzerLayout';
 import { Banner } from './core/Banner';
 import { Button } from './core/Button';
 import { HotkeyList } from './core/HotkeyList';
@@ -40,6 +39,7 @@ import { FeedbackLink } from './core/Link';
 import { HStack } from './core/Stacks';
 import { ErrorBoundary } from './ErrorBoundary';
 import { FolderLayout } from './FolderLayout';
+import { FuzzerLayout } from './FuzzerLayout';
 import { GrpcConnectionLayout } from './GrpcConnectionLayout';
 import { HeaderSize } from './HeaderSize';
 import { HttpRequestLayout } from './HttpRequestLayout';

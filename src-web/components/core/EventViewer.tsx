@@ -1,4 +1,5 @@
 import type { Virtualizer } from '@tanstack/react-virtual';
+import classNames from 'classnames';
 import { format } from 'date-fns';
 import type { ReactNode } from 'react';
 import { useCallback, useMemo, useRef, useState } from 'react';
@@ -7,11 +8,10 @@ import { CopyIconButton } from '../CopyIconButton';
 import { AutoScroller } from './AutoScroller';
 import { Banner } from './Banner';
 import { Button } from './Button';
+import { IconButton } from './IconButton';
 import { Separator } from './Separator';
 import { SplitLayout } from './SplitLayout';
 import { HStack } from './Stacks';
-import { IconButton } from './IconButton';
-import classNames from 'classnames';
 
 interface EventViewerProps<T> {
   /** Array of events to display */
@@ -189,7 +189,11 @@ export function EventViewer<T>({
                     <Separator />
                   </div>
                   <div className="mx-2 overflow-y-auto">
-                    {renderDetail({ event: activeEvent, index: activeIndex ?? 0, onClose: handleClose })}
+                    {renderDetail({
+                      event: activeEvent,
+                      index: activeIndex ?? 0,
+                      onClose: handleClose,
+                    })}
                   </div>
                 </div>
               )
@@ -249,8 +253,21 @@ export function EventDetailHeader({
         {formattedTime && (
           <span className="text-text-subtlest font-mono text-editor ml-2">{formattedTime}</span>
         )}
-        <div className={classNames(copyText != null || formattedTime || (actions ?? []).length > 0 && "border-l border-l-surface-highlight ml-2 pl-3")}>
-        <IconButton color="custom" className="text-text-subtle -mr-3" size="xs" icon="x" title="Close event panel" onClick={onClose} />
+        <div
+          className={classNames(
+            copyText != null ||
+              formattedTime ||
+              ((actions ?? []).length > 0 && 'border-l border-l-surface-highlight ml-2 pl-3'),
+          )}
+        >
+          <IconButton
+            color="custom"
+            className="text-text-subtle -mr-3"
+            size="xs"
+            icon="x"
+            title="Close event panel"
+            onClick={onClose}
+          />
         </div>
       </HStack>
     </div>

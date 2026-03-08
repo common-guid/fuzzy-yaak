@@ -66,9 +66,10 @@ export function isFolderEnvironment(environment: Environment): boolean {
   return environment.parentModel === 'folder';
 }
 
-export function getCookieCounts(
-  events: HttpResponseEvent[] | undefined,
-): { sent: number; received: number } {
+export function getCookieCounts(events: HttpResponseEvent[] | undefined): {
+  sent: number;
+  received: number;
+} {
   if (!events) return { sent: 0, received: 0 };
 
   // Use Sets to deduplicate by cookie name

@@ -30,9 +30,7 @@ export function RadioCards<T extends string>({
             className={classNames(
               'flex items-start gap-3 p-3 rounded-lg border cursor-pointer',
               'transition-colors',
-              selected
-                ? 'border-border-focus'
-                : 'border-border-subtle hocus:border-text-subtlest',
+              selected ? 'border-border-focus' : 'border-border-subtle hocus:border-text-subtlest',
             )}
           >
             <input

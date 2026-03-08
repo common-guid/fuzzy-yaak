@@ -61,13 +61,13 @@ import { showGraphQLDocExplorerAtom } from '../../graphql/graphqlAtoms';
 import type { EditorProps } from './Editor';
 import { jsonParseLinter } from './json-lint';
 import { pairs } from './pairs/extension';
+import { searchMatchCount } from './searchMatchCount';
 import { text } from './text/extension';
 import { timeline } from './timeline/extension';
 import type { TwigCompletionOption } from './twig/completion';
 import { twig } from './twig/extension';
 import { pathParametersPlugin } from './twig/pathParameters';
 import { url } from './url/extension';
-import { searchMatchCount } from './searchMatchCount';
 
 export const syntaxHighlightStyle = HighlightStyle.define([
   {

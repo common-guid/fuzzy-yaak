@@ -1,29 +1,31 @@
+import type { EditorView } from '@codemirror/view';
 import type { HttpRequest, HttpResponse } from '@yaakapp-internal/models';
 import classNames from 'classnames';
-import { useAtom, useAtomValue } from 'jotai';
-import { atom } from 'jotai';
+import { atom, useAtom, useAtomValue } from 'jotai';
 import type { CSSProperties, KeyboardEvent } from 'react';
-import { useState, useMemo, useRef, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { activeWorkspaceAtom } from '../hooks/useActiveWorkspace';
-import { invokeCmd } from '../lib/tauri';
-import { getResponseBodyText } from '../lib/responseBody';
-import { Button } from './core/Button';
-import { Editor } from './core/Editor/LazyEditor';
-import { Tabs, TabContent, type TabsRef } from './core/Tabs/Tabs';
-import { HStack } from './core/Stacks';
-import { Dialog } from './core/Dialog';
-import { fuzzerMarkersExtension } from './fuzzer/FuzzerEditorExtensions';
-import type { EditorView } from '@codemirror/view';
-import { generateId } from '../lib/generateId';
-import { sendEphemeralRequest } from '../lib/sendEphemeralRequest';
-import { Table, TableHead, TableRow, TableHeaderCell, TableBody, TableCell } from './core/Table';
-import { HttpStatusTagRaw } from './core/HttpStatusTag';
 import { atomWithKVStorage } from '../lib/atoms/atomWithKVStorage';
-import { runFuzzerRequests, type FuzzerMarker, type FuzzerResult } from './fuzzer/runFuzzer';
+import { generateId } from '../lib/generateId';
+import { getResponseBodyText } from '../lib/responseBody';
+import { sendEphemeralRequest } from '../lib/sendEphemeralRequest';
+import { invokeCmd } from '../lib/tauri';
+import { Button } from './core/Button';
+import { Dialog } from './core/Dialog';
+import { Editor } from './core/Editor/LazyEditor';
+import { HttpStatusTagRaw } from './core/HttpStatusTag';
+import { HStack } from './core/Stacks';
+import { Table, TableBody, TableCell, TableHead, TableHeaderCell, TableRow } from './core/Table';
+import { TabContent, Tabs, type TabsRef } from './core/Tabs/Tabs';
+import { fuzzerMarkersExtension } from './fuzzer/FuzzerEditorExtensions';
+import { type FuzzerMarker, type FuzzerResult, runFuzzerRequests } from './fuzzer/runFuzzer';
 
 // Use atomWithKVStorage for persistence
-export const fuzzerDraftRequestAtom = atomWithKVStorage<HttpRequest | null>('fuzzer_draft_request', null);
+export const fuzzerDraftRequestAtom = atomWithKVStorage<HttpRequest | null>(
+  'fuzzer_draft_request',
+  null,
+);
 export const fuzzerMarkersAtom = atomWithKVStorage<FuzzerMarker[]>('fuzzer_markers', []);
 export const fuzzerWordlistAtom = atomWithKVStorage<string>('fuzzer_wordlist', '');
 export const fuzzerResultsAtom = atomWithKVStorage<FuzzerResult[]>('fuzzer_results', []);
@@ -33,7 +35,6 @@ export const fuzzerIsRunningAtom = atom<boolean>(false);
 // Helper to store raw headers string in atom to survive reloads,
 // since we parse/unparse from HttpRequest which might lose exact formatting
 export const fuzzerRawHeadersAtom = atomWithKVStorage<string>('fuzzer_raw_headers', '');
-
 
 interface Props {
   style?: CSSProperties;
@@ -111,7 +112,9 @@ function FuzzerRequestDetailPanel({ request }: { request: HttpRequest | undefine
       </div>
       <div className="min-h-0 overflow-auto">
         <div className="px-3 py-2 border-b border-border-subtle">
-          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">Start Line</div>
+          <div className="text-[10px] uppercase tracking-wide text-text-subtle mb-1">
+            Start Line
+          </div>
           <DetailCodeBlock language="http" content={requestLine} />
         </div>
         <div className="px-3 py-2 border-b border-border-subtle">
@@ -148,7 +151,9 @@ function FuzzerResponseDetailPanel({
           Response
         </div>
         <div className="min-h-0 overflow-auto p-3 text-xs text-danger">
-          {result.error ? `Error: ${result.error}` : 'Response snapshot unavailable for this result.'}
+          {result.error
+            ? `Error: ${result.error}`
+            : 'Response snapshot unavailable for this result.'}
         </div>
       </div>
     );
@@ -158,7 +163,9 @@ function FuzzerResponseDetailPanel({
   const version = response.version ?? 'HTTP/1.1';
   const statusReason = response.statusReason ?? '';
   const statusLine = `${version} ${response.status}${statusReason ? ` ${statusReason}` : ''}`;
-  const headersText = response.headers.map((header) => `${header.name}: ${header.value}`).join('\n');
+  const headersText = response.headers
+    .map((header) => `${header.name}: ${header.value}`)
+    .join('\n');
 
   let bodyText = '';
   let bodyLanguage = 'http';
@@ -205,7 +212,7 @@ export function FuzzerLayout({ style, className }: Props) {
   // We don't need activeTab state unless we render differently based on it,
   // but Tabs handles content switching.
   const switchToResults = () => {
-      tabsRef.current?.setActiveTab('results');
+    tabsRef.current?.setActiveTab('results');
   };
 
   return (
@@ -265,7 +272,7 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
       setDraftRequest({ ...request, workspaceId: activeWorkspace.id });
 
       // Initialize raw headers from imported request
-      const headersText = request.headers.map(h => `${h.name}: ${h.value}`).join('\n');
+      const headersText = request.headers.map((h) => `${h.name}: ${h.value}`).join('\n');
       setRawHeaders(headersText);
 
       setShowCurlImport(false);
@@ -281,44 +288,44 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
 
   const updateDraft = (patch: Partial<HttpRequest>) => {
     if (draftRequest) {
-        setDraftRequest({ ...draftRequest, ...patch });
+      setDraftRequest({ ...draftRequest, ...patch });
     }
   };
 
   const handleMarkSelection = () => {
-      let view: EditorView | null = null;
-      let field: FuzzerMarker['field'] | null = null;
+    let view: EditorView | null = null;
+    let field: FuzzerMarker['field'] | null = null;
 
-      if (focusedField === 'url') {
-          view = urlEditorView;
-          field = 'url';
-      } else if (focusedField === 'headers') {
-          view = headersEditorView;
-          field = 'headers';
-      } else if (focusedField === 'body') {
-          view = bodyEditorView;
-          field = 'body';
-      }
+    if (focusedField === 'url') {
+      view = urlEditorView;
+      field = 'url';
+    } else if (focusedField === 'headers') {
+      view = headersEditorView;
+      field = 'headers';
+    } else if (focusedField === 'body') {
+      view = bodyEditorView;
+      field = 'body';
+    }
 
-      if (view && field) {
-          const selection = view.state.selection.main;
-          if (selection.empty) return;
+    if (view && field) {
+      const selection = view.state.selection.main;
+      if (selection.empty) return;
 
-          const marker: FuzzerMarker = {
-              id: generateId(),
-              field,
-              start: selection.from,
-              end: selection.to,
-              originalText: view.state.doc.sliceString(selection.from, selection.to),
-          };
-          setMarkers([...markers, marker]);
-          setIsLocked(true);
-      }
+      const marker: FuzzerMarker = {
+        id: generateId(),
+        field,
+        start: selection.from,
+        end: selection.to,
+        originalText: view.state.doc.sliceString(selection.from, selection.to),
+      };
+      setMarkers([...markers, marker]);
+      setIsLocked(true);
+    }
   };
 
   const handleClearMarkers = () => {
-      setMarkers([]);
-      setIsLocked(false);
+    setMarkers([]);
+    setIsLocked(false);
   };
 
   const handleNewRequest = () => {
@@ -342,7 +349,10 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
     setResults([]); // Clear previous run
     switchToResults();
 
-    const words = wordlist.split('\n').map(w => w.trim()).filter(w => w);
+    const words = wordlist
+      .split('\n')
+      .map((w) => w.trim())
+      .filter((w) => w);
     try {
       await runFuzzerRequests({
         draftRequest,
@@ -362,13 +372,15 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
   };
 
   const getExtensionsForField = (field: FuzzerMarker['field']) => {
-      const fieldMarkers = markers.filter(m => m.field === field).map(m => ({
-          id: m.id,
-          start: m.start,
-          end: m.end,
-          originalText: m.originalText
+    const fieldMarkers = markers
+      .filter((m) => m.field === field)
+      .map((m) => ({
+        id: m.id,
+        start: m.start,
+        end: m.end,
+        originalText: m.originalText,
       }));
-      return isLocked ? fuzzerMarkersExtension(fieldMarkers) : [];
+    return isLocked ? fuzzerMarkersExtension(fieldMarkers) : [];
   };
 
   return (
@@ -376,101 +388,126 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
       {/* Left: Request Editor */}
       <div className="flex flex-col min-w-0 h-full">
         <div className="p-2 border-b border-border-subtle flex gap-2 items-center justify-between">
-            <div className="flex gap-2">
-                <Button size="sm" onClick={() => setShowCurlImport(true)} disabled={isLocked || isRunning}>
-                Parse from cURL
-                </Button>
-                <Button size="sm" variant="border" onClick={handleNewRequest} disabled={isRunning}>
-                New Request
-                </Button>
-                <div className="h-4 w-px bg-border-subtle mx-2" />
-                <Button
-                    size="sm"
-                    disabled={!draftRequest || isRunning}
-                    onClick={handleMarkSelection}
-                    variant="border"
-                >
-                    Mark Selection ({focusedField ? focusedField.toUpperCase() : 'None'})
-                </Button>
-                {isLocked && (
-                    <Button size="sm" color="danger" variant="border" onClick={handleClearMarkers} disabled={isRunning}>
-                        Clear Markers & Unlock
-                    </Button>
-                )}
-            </div>
-
-             <Button
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => setShowCurlImport(true)}
+              disabled={isLocked || isRunning}
+            >
+              Parse from cURL
+            </Button>
+            <Button size="sm" variant="border" onClick={handleNewRequest} disabled={isRunning}>
+              New Request
+            </Button>
+            <div className="h-4 w-px bg-border-subtle mx-2" />
+            <Button
+              size="sm"
+              disabled={!draftRequest || isRunning}
+              onClick={handleMarkSelection}
+              variant="border"
+            >
+              Mark Selection ({focusedField ? focusedField.toUpperCase() : 'None'})
+            </Button>
+            {isLocked && (
+              <Button
                 size="sm"
-                color="primary"
-                disabled={
-                  !draftRequest ||
-                  markers.length === 0 ||
-                  !wordlist.trim() ||
-                  isRunning ||
-                  activeWorkspace?.id == null
-                }
-                onClick={handleRunFuzzer}
-             >
-                 {isRunning ? 'Running...' : 'Run Fuzzer'}
-             </Button>
+                color="danger"
+                variant="border"
+                onClick={handleClearMarkers}
+                disabled={isRunning}
+              >
+                Clear Markers & Unlock
+              </Button>
+            )}
+          </div>
+
+          <Button
+            size="sm"
+            color="primary"
+            disabled={
+              !draftRequest ||
+              markers.length === 0 ||
+              !wordlist.trim() ||
+              isRunning ||
+              activeWorkspace?.id == null
+            }
+            onClick={handleRunFuzzer}
+          >
+            {isRunning ? 'Running...' : 'Run Fuzzer'}
+          </Button>
         </div>
 
         {draftRequest ? (
           <div className="flex-1 flex flex-col min-h-0 overflow-y-auto">
-             {/* URL Editor */}
-             {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
-             <div className="p-2 border-b border-border-subtle" onFocus={() => setFocusedField('url')}>
-                <div className="text-xs text-text-subtle mb-1">URL</div>
-                <div className="border border-border-subtle rounded overflow-hidden">
-                    <Editor
-                        language="url"
-                        singleLine
-                        defaultValue={draftRequest.url}
-                        onChange={(url) => !isLocked && updateDraft({ url })}
-                        readOnly={isLocked || isRunning}
-                        heightMode="auto"
-                        stateKey={`fuzzer.url.${draftRequest.id}`}
-                        setRef={setUrlEditorView}
-                        extraExtensions={getExtensionsForField('url')}
-                    />
-                </div>
-             </div>
-
-             {/* Headers Editor */}
-             {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
-             <div className="flex-1 min-h-[150px] flex flex-col border-b border-border-subtle" onFocus={() => setFocusedField('headers')}>
-                <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Headers (Raw)</div>
-                <div className="flex-1 relative">
-                    <Editor
-                        language={null} // Force plain text
-                        defaultValue={rawHeaders}
-                        onChange={(text) => !isLocked && setRawHeaders(text)}
-                        readOnly={isLocked || isRunning}
-                        heightMode="full"
-                        stateKey={`fuzzer.headers.${draftRequest.id}`}
-                        setRef={setHeadersEditorView}
-                        extraExtensions={getExtensionsForField('headers')}
-                    />
-                </div>
-             </div>
-
-             {/* Body Editor */}
-              {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
-              <div className="flex-1 min-h-[200px] flex flex-col" onFocus={() => setFocusedField('body')}>
-                  <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">Body</div>
-                  <div className="flex-1 relative">
-                    <Editor
-                        language="json"
-                        defaultValue={draftRequest.body?.text ?? ''}
-                        onChange={(text) => !isLocked && updateDraft({ body: { ...draftRequest.body, text } })}
-                        readOnly={isLocked || isRunning}
-                        heightMode="full"
-                        stateKey={`fuzzer.body.${draftRequest.id}`}
-                        setRef={setBodyEditorView}
-                        extraExtensions={getExtensionsForField('body')}
-                    />
-                  </div>
+            {/* URL Editor */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
+            <div
+              className="p-2 border-b border-border-subtle"
+              onFocus={() => setFocusedField('url')}
+            >
+              <div className="text-xs text-text-subtle mb-1">URL</div>
+              <div className="border border-border-subtle rounded overflow-hidden">
+                <Editor
+                  language="url"
+                  singleLine
+                  defaultValue={draftRequest.url}
+                  onChange={(url) => !isLocked && updateDraft({ url })}
+                  readOnly={isLocked || isRunning}
+                  heightMode="auto"
+                  stateKey={`fuzzer.url.${draftRequest.id}`}
+                  setRef={setUrlEditorView}
+                  extraExtensions={getExtensionsForField('url')}
+                />
               </div>
+            </div>
+
+            {/* Headers Editor */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
+            <div
+              className="flex-1 min-h-[150px] flex flex-col border-b border-border-subtle"
+              onFocus={() => setFocusedField('headers')}
+            >
+              <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">
+                Headers (Raw)
+              </div>
+              <div className="flex-1 relative">
+                <Editor
+                  language={null} // Force plain text
+                  defaultValue={rawHeaders}
+                  onChange={(text) => !isLocked && setRawHeaders(text)}
+                  readOnly={isLocked || isRunning}
+                  heightMode="full"
+                  stateKey={`fuzzer.headers.${draftRequest.id}`}
+                  setRef={setHeadersEditorView}
+                  extraExtensions={getExtensionsForField('headers')}
+                />
+              </div>
+            </div>
+
+            {/* Body Editor */}
+            {/* biome-ignore lint/a11y/noStaticElementInteractions: Used for focus tracking */}
+            <div
+              className="flex-1 min-h-[200px] flex flex-col"
+              onFocus={() => setFocusedField('body')}
+            >
+              <div className="px-2 py-1 text-xs text-text-subtle bg-surface-subtle border-b border-border-subtle">
+                Body
+              </div>
+              <div className="flex-1 relative">
+                <Editor
+                  language="json"
+                  defaultValue={draftRequest.body?.text ?? ''}
+                  onChange={(text) =>
+                    !isLocked && updateDraft({ body: { ...draftRequest.body, text } })
+                  }
+                  readOnly={isLocked || isRunning}
+                  heightMode="full"
+                  stateKey={`fuzzer.body.${draftRequest.id}`}
+                  setRef={setBodyEditorView}
+                  extraExtensions={getExtensionsForField('body')}
+                />
+              </div>
+            </div>
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center text-text-subtle">
@@ -483,38 +520,38 @@ function FuzzerRequestPane({ switchToResults }: { switchToResults: () => void })
       <div className="flex flex-col min-w-0 h-full bg-surface-subtle">
         <div className="p-2 font-semibold text-sm border-b border-border-subtle">Wordlist</div>
         <div className="flex-1 min-h-0 relative">
-            <Editor
-                language="text"
-                defaultValue={wordlist}
-                onChange={setWordlist}
-                placeholder="Enter wordlist (one per line)"
-                heightMode="full"
-                stateKey="fuzzer.wordlist"
-                readOnly={isRunning}
-            />
+          <Editor
+            language="text"
+            defaultValue={wordlist}
+            onChange={setWordlist}
+            placeholder="Enter wordlist (one per line)"
+            heightMode="full"
+            stateKey="fuzzer.wordlist"
+            readOnly={isRunning}
+          />
         </div>
       </div>
 
       {/* Curl Import Dialog */}
-      <Dialog
-        open={showCurlImport}
-        onClose={() => setShowCurlImport(false)}
-        title="Import cURL"
-      >
+      <Dialog open={showCurlImport} onClose={() => setShowCurlImport(false)} title="Import cURL">
         <div className="flex flex-col gap-3 min-w-[500px]">
-            <Editor
-                language={null} // Plain text for curl paste
-                defaultValue={curlInput}
-                onChange={setCurlInput}
-                heightMode="auto"
-                className="min-h-[200px] border border-border-subtle rounded"
-                placeholder="curl -X POST https://api.example.com/..."
-                stateKey="fuzzer.curl_import"
-            />
-            <HStack justifyContent="end" space={2}>
-                <Button variant="border" onClick={() => setShowCurlImport(false)}>Cancel</Button>
-                <Button color="primary" onClick={handleImportCurl} disabled={!curlInput.trim()}>Import</Button>
-            </HStack>
+          <Editor
+            language={null} // Plain text for curl paste
+            defaultValue={curlInput}
+            onChange={setCurlInput}
+            heightMode="auto"
+            className="min-h-[200px] border border-border-subtle rounded"
+            placeholder="curl -X POST https://api.example.com/..."
+            stateKey="fuzzer.curl_import"
+          />
+          <HStack justifyContent="end" space={2}>
+            <Button variant="border" onClick={() => setShowCurlImport(false)}>
+              Cancel
+            </Button>
+            <Button color="primary" onClick={handleImportCurl} disabled={!curlInput.trim()}>
+              Import
+            </Button>
+          </HStack>
         </div>
       </Dialog>
     </div>
@@ -556,7 +593,10 @@ function FuzzerResultsPane() {
     if (selectedResult.response.bodyPath == null) {
       return;
     }
-    if (responseBodies[selectedResult.id] != null || responseBodyErrors[selectedResult.id] != null) {
+    if (
+      responseBodies[selectedResult.id] != null ||
+      responseBodyErrors[selectedResult.id] != null
+    ) {
       return;
     }
 
@@ -608,9 +648,9 @@ function FuzzerResultsPane() {
       'ID,Word,Status,Size,Time,Error',
       ...results.map(
         (result, index) =>
-          `${index + 1},\"${result.word}\",${result.status},${result.contentLength},${result.elapsed},\"${
+          `${index + 1},"${result.word}",${result.status},${result.contentLength},${result.elapsed},"${
             result.error || ''
-          }\"`,
+          }"`,
       ),
     ].join('\n');
 
@@ -677,12 +717,15 @@ function FuzzerResultsPane() {
                     key={result.id}
                     className={classNames(
                       'cursor-pointer hocus:[&>td]:bg-surface-highlight/30',
-                      isSelected && '[&>td]:bg-primary/10 [&>td]:border-y [&>td]:border-border-focus',
+                      isSelected &&
+                        '[&>td]:bg-primary/10 [&>td]:border-y [&>td]:border-border-focus',
                     )}
                     onClick={() => handleSelectResult(result.id)}
                     aria-selected={isSelected}
                   >
-                    <TableCell className={classNames('text-text-subtle', isSelected && 'font-semibold')}>
+                    <TableCell
+                      className={classNames('text-text-subtle', isSelected && 'font-semibold')}
+                    >
                       {index + 1}
                     </TableCell>
                     <TableCell>{result.word}</TableCell>

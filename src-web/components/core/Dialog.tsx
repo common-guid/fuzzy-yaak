@@ -1,3 +1,4 @@
+import type { DialogSize } from '@yaakapp-internal/plugins';
 import classNames from 'classnames';
 import * as m from 'motion/react-m';
 import type { ReactNode } from 'react';
@@ -5,7 +6,6 @@ import { useMemo } from 'react';
 import { Overlay } from '../Overlay';
 import { Heading } from './Heading';
 import { IconButton } from './IconButton';
-import { DialogSize } from '@yaakapp-internal/plugins';
 
 export interface DialogProps {
   children: ReactNode;

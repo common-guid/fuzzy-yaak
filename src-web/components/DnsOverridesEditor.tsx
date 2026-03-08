@@ -66,8 +66,8 @@ export function DnsOverridesEditor({ workspace }: Props) {
     <VStack space={3} className="pb-3">
       <div className="text-text-subtle text-sm">
         Override DNS resolution for specific hostnames. This works like{' '}
-        <code className="text-text-subtlest bg-surface-highlight px-1 rounded">/etc/hosts</code>{' '}
-        but only for requests made from this workspace.
+        <code className="text-text-subtlest bg-surface-highlight px-1 rounded">/etc/hosts</code> but
+        only for requests made from this workspace.
       </div>
 
       {overridesWithIds.length > 0 && (

@@ -40,7 +40,8 @@ function DivergedDialog({ remote, branch, onResult, onHide }: DivergedDialogProp
         Your local branch has diverged from{' '}
         <InlineCode>
           {remote}/{branch}
-        </InlineCode>. How would you like to resolve this?
+        </InlineCode>
+        . How would you like to resolve this?
       </p>
       <RadioCards
         name="diverged-strategy"

@@ -7,15 +7,15 @@ Object.defineProperty(global, 'window', {
       },
     },
     navigator: {
-        userAgent: 'test'
-    }
+      userAgent: 'test',
+    },
   },
-  writable: true
+  writable: true,
 });
 
-import { describe, it, expect, vi } from 'vitest';
 import { createStore } from 'jotai';
-import { fuzzerResultsAtom, fuzzerMarkersAtom } from './FuzzerLayout';
+import { describe, expect, it, vi } from 'vitest';
+import { fuzzerMarkersAtom, fuzzerResultsAtom } from './FuzzerLayout';
 
 // Mock dependencies that cause issues in node environment
 vi.mock('@tauri-apps/plugin-os', () => ({
@@ -28,28 +28,30 @@ vi.mock('../lib/tauri', () => ({
 
 // Mock CodeMirror deps which might be pulling in WASM or other complex stuff
 vi.mock('./core/Editor/LazyEditor', () => ({
-  Editor: () => null
+  Editor: () => null,
 }));
 
 vi.mock('./fuzzer/FuzzerEditorExtensions', () => ({
-  fuzzerMarkersExtension: () => []
+  fuzzerMarkersExtension: () => [],
 }));
 
 vi.mock('./UrlBar', () => ({
-  UrlBar: () => null
+  UrlBar: () => null,
 }));
 
 describe('Fuzzer State Logic', () => {
   it('should store markers correctly', () => {
     const store = createStore();
 
-    store.set(fuzzerMarkersAtom, [{
-      id: '1',
-      field: 'body',
-      start: 0,
-      end: 5,
-      originalText: 'test'
-    }]);
+    store.set(fuzzerMarkersAtom, [
+      {
+        id: '1',
+        field: 'body',
+        start: 0,
+        end: 5,
+        originalText: 'test',
+      },
+    ]);
 
     const markers = store.get(fuzzerMarkersAtom);
     expect(markers).toHaveLength(1);
@@ -59,14 +61,16 @@ describe('Fuzzer State Logic', () => {
   it('should store results correctly', () => {
     const store = createStore();
 
-    store.set(fuzzerResultsAtom, [{
-      id: '1',
-      word: 'payload',
-      status: 200,
-      elapsed: 100,
-      contentLength: 50,
-      timestamp: 1234567890
-    }]);
+    store.set(fuzzerResultsAtom, [
+      {
+        id: '1',
+        word: 'payload',
+        status: 200,
+        elapsed: 100,
+        contentLength: 50,
+        timestamp: 1234567890,
+      },
+    ]);
 
     const results = store.get(fuzzerResultsAtom);
     expect(results).toHaveLength(1);

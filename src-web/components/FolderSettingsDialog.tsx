@@ -1,8 +1,4 @@
-import {
-  createWorkspaceModel,
-  foldersAtom,
-  patchModel,
-} from '@yaakapp-internal/models';
+import { createWorkspaceModel, foldersAtom, patchModel } from '@yaakapp-internal/models';
 import { useAtomValue } from 'jotai';
 import { Fragment, useMemo } from 'react';
 import { useAuthTab } from '../hooks/useAuthTab';
@@ -86,11 +82,7 @@ export function FolderSettingsDialog({ folderId, tab }: Props) {
           {breadcrumbs.map((item, index) => (
             <Fragment key={item.id}>
               {index > 0 && (
-                <Icon
-                  icon="chevron_right"
-                  size="lg"
-                  className="opacity-50 flex-shrink-0"
-                />
+                <Icon icon="chevron_right" size="lg" className="opacity-50 flex-shrink-0" />
               )}
               <span className="text-text-subtle truncate min-w-0" title={item.name}>
                 {item.name}
@@ -100,10 +92,7 @@ export function FolderSettingsDialog({ folderId, tab }: Props) {
           {breadcrumbs.length > 0 && (
             <Icon icon="chevron_right" size="lg" className="opacity-50 flex-shrink-0" />
           )}
-          <span
-            className="whitespace-nowrap"
-            title={folder.name}
-          >
+          <span className="whitespace-nowrap" title={folder.name}>
             {folder.name}
           </span>
         </div>

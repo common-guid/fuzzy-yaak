@@ -2,11 +2,7 @@ import type { HttpResponseEvent } from '@yaakapp-internal/models';
 import { describe, expect, test } from 'vitest';
 import { getCookieCounts } from './model_util';
 
-function makeEvent(
-  type: string,
-  name: string,
-  value: string,
-): HttpResponseEvent {
+function makeEvent(type: string, name: string, value: string): HttpResponseEvent {
   return {
     id: 'test',
     model: 'http_response_event',

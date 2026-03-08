@@ -296,7 +296,9 @@ function Sidebar({ className }: { className?: string }) {
         cb: async (items: SidebarModel[]) => {
           const requests = items.filter(
             (i): i is HttpRequest | GrpcRequest | WebsocketRequest =>
-              i.model === 'http_request' || i.model === 'grpc_request' || i.model === 'websocket_request'
+              i.model === 'http_request' ||
+              i.model === 'grpc_request' ||
+              i.model === 'websocket_request',
           );
           if (requests.length > 0) {
             moveToWorkspace.mutate(requests);
@@ -335,7 +337,9 @@ function Sidebar({ className }: { className?: string }) {
       const onlyHttpRequests = items.every((i) => i.model === 'http_request');
       const requestItems = items.filter(
         (i) =>
-          i.model === 'http_request' || i.model === 'grpc_request' || i.model === 'websocket_request',
+          i.model === 'http_request' ||
+          i.model === 'grpc_request' ||
+          i.model === 'websocket_request',
       );
 
       const initialItems: ContextMenuProps['items'] = [
@@ -437,7 +441,10 @@ function Sidebar({ className }: { className?: string }) {
           hotKeyAction: 'sidebar.selected.move',
           hotKeyLabelOnly: true,
           leftSlot: <Icon icon="arrow_right_circle" />,
-          hidden: workspaces.length <= 1 || requestItems.length === 0 || requestItems.length !== items.length,
+          hidden:
+            workspaces.length <= 1 ||
+            requestItems.length === 0 ||
+            requestItems.length !== items.length,
           onSelect: () => {
             actions['sidebar.selected.move'].cb(items);
           },

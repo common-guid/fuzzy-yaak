@@ -32,14 +32,11 @@ export function useIntrospectGraphQL(
 
   const upsertIntrospection = useCallback(
     async (content: string | null) => {
-      const v = await invoke<GraphQlIntrospection>(
-        'models_upsert_graphql_introspection',
-        {
-          requestId: baseRequest.id,
-          workspaceId: baseRequest.workspaceId,
-          content: content ?? '',
-        },
-      );
+      const v = await invoke<GraphQlIntrospection>('models_upsert_graphql_introspection', {
+        requestId: baseRequest.id,
+        workspaceId: baseRequest.workspaceId,
+        content: content ?? '',
+      });
 
       // Update local introspection
       queryClient.setQueryData(['introspection', baseRequest.id], v);
