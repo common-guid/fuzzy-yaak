@@ -19,6 +19,7 @@ import { useSendAnyHttpRequest } from '../hooks/useSendAnyHttpRequest';
 import { deepEqualAtom } from '../lib/atoms';
 import { languageFromContentType } from '../lib/contentType';
 import { generateId } from '../lib/generateId';
+import { FuzzerTab, getFuzzerSessionAtom } from './fuzzer/FuzzerTab';
 import {
   BODY_TYPE_BINARY,
   BODY_TYPE_FORM_MULTIPART,
@@ -69,6 +70,7 @@ const TAB_PARAMS = 'params';
 const TAB_HEADERS = 'headers';
 const TAB_AUTH = 'auth';
 const TAB_DESCRIPTION = 'description';
+const TAB_FUZZER = 'fuzzer';
 const TABS_STORAGE_KEY = 'http_request_tabs';
 
 const nonActiveRequestUrlsAtom = atom((get) => {
@@ -91,6 +93,9 @@ export function HttpRequestPane({ style, fullHeight, className, activeRequest }:
   const authTab = useAuthTab(TAB_AUTH, activeRequest);
   const headersTab = useHeadersTab(TAB_HEADERS, activeRequest);
   const inheritedHeaders = useInheritedHeaders(activeRequest);
+  const sessionAtom = useMemo(() => getFuzzerSessionAtom(activeRequestId), [activeRequestId]);
+  const session = useAtomValue(sessionAtom);
+  const runsCount = session?.runs?.length ?? 0;
 
   // Listen for event to focus the params tab (e.g., when clicking a :param in the URL)
   useRequestEditorEvent('request_pane.focus_tab', () => {
@@ -233,6 +238,11 @@ export function HttpRequestPane({ style, fullHeight, className, activeRequest }:
         value: TAB_DESCRIPTION,
         label: 'Info',
       },
+      {
+        value: TAB_FUZZER,
+        rightSlot: runsCount > 0 ? <CountBadge count={runsCount} /> : null,
+        label: 'Fuzzer',
+      },
     ],
     [
       activeRequest,
@@ -242,6 +252,7 @@ export function HttpRequestPane({ style, fullHeight, className, activeRequest }:
       headersTab,
       numParams,
       urlParameterPairs.length,
+      runsCount,
     ],
   );
 
@@ -460,6 +471,9 @@ export function HttpRequestPane({ style, fullHeight, className, activeRequest }:
                   onChange={(description) => patchModel(activeRequest, { description })}
                 />
               </div>
+            </TabContent>
+            <TabContent value={TAB_FUZZER}>
+                <FuzzerTab activeRequest={activeRequest} />
             </TabContent>
           </Tabs>
         </>

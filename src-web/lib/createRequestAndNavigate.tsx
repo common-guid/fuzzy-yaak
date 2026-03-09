@@ -6,7 +6,11 @@ import { router } from './router';
 
 export async function createRequestAndNavigate<
   T extends HttpRequest | GrpcRequest | WebsocketRequest,
->(patch: Partial<T> & Pick<T, 'model' | 'workspaceId'>) {
+>(
+  patch: Partial<T> & Pick<T, 'model' | 'workspaceId'>,
+  // biome-ignore lint/suspicious/noExplicitAny: Record<string, any> is intentional here
+  searchOverrides?: Record<string, any>
+) {
   const activeRequest = jotaiStore.get(activeRequestAtom);
 
   if (patch.sortPriority === undefined) {
@@ -25,7 +29,7 @@ export async function createRequestAndNavigate<
   await router.navigate({
     to: '/workspaces/$workspaceId',
     params: { workspaceId: patch.workspaceId },
-    search: (prev) => ({ ...prev, request_id: newId }),
+    search: (prev) => ({ ...prev, request_id: newId, ...searchOverrides }),
   });
   return newId;
 }
