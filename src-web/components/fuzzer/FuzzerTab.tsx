@@ -1,3 +1,5 @@
+import { open } from '@tauri-apps/plugin-dialog';
+import { readTextFile } from '@tauri-apps/plugin-fs';
 import type { HttpRequest, HttpResponse } from '@yaakapp-internal/models';
 import classNames from 'classnames';
 import { useAtom, useAtomValue } from 'jotai';
@@ -14,6 +16,7 @@ import { Editor } from '../core/Editor/LazyEditor';
 import { Tabs, TabContent, type TabsRef } from '../core/Tabs/Tabs';
 import { HStack } from '../core/Stacks';
 import { Dialog } from '../core/Dialog';
+import { Icon } from '../core/Icon';
 import { fuzzerMarkersExtension } from './FuzzerEditorExtensions';
 import type { EditorView } from '@codemirror/view';
 import { generateId } from '../../lib/generateId';
@@ -517,7 +520,27 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
 
       {/* Right: Wordlist & Settings */}
       <div className="flex flex-col min-w-0 h-full bg-surface-subtle">
-        <div className="p-2 font-semibold text-sm border-b border-border-subtle">Wordlist</div>
+        <HStack className="p-2 justify-between border-b border-border-subtle">
+          <div className="font-semibold text-sm">Wordlist</div>
+          <Button
+            size="2xs"
+            variant="border"
+            onClick={async () => {
+              const filePath = await open({
+                title: 'Import Wordlist',
+                multiple: false,
+                filters: [{ name: 'Text Files', extensions: ['txt', 'csv'] }],
+              });
+              if (typeof filePath === 'string') {
+                const text = await readTextFile(filePath);
+                updateSession({ wordlist: text });
+              }
+            }}
+          >
+            <Icon icon="import" size="xs" className="mr-1" />
+            Import
+          </Button>
+        </HStack>
         <div className="flex-1 min-h-0 relative">
             <Editor
                 language="text"
