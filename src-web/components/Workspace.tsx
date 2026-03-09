@@ -32,10 +32,10 @@ import { useListenToTauriEvent } from '../hooks/useListenToTauriEvent';
 import { duplicateRequestOrFolderAndNavigate } from '../lib/duplicateRequestOrFolderAndNavigate';
 import { importData } from '../lib/importData';
 import { jotaiStore } from '../lib/jotai';
+import { getKeyValueRaw } from '../lib/keyValueStore';
+import { deleteModel } from '@yaakapp-internal/models';
 import type { ModelPayload } from '@yaakapp-internal/models';
-import { fuzzerSessionsAtom } from './FuzzerLayout';
 import { CreateDropdown } from './CreateDropdown';
-import { FuzzerLayout } from './FuzzerLayout';
 import { Banner } from './core/Banner';
 import { Button } from './core/Button';
 import { HotkeyList } from './core/HotkeyList';
@@ -208,8 +208,6 @@ function WorkspaceBody() {
   const activeFolder = useAtomValue(activeFolderAtom);
   const activeWorkspace = useAtomValue(activeWorkspaceAtom);
 
-  const { view } = useSearch({ strict: false });
-
   if (activeWorkspace == null) {
     return (
       <m.div
@@ -225,10 +223,6 @@ function WorkspaceBody() {
         </Banner>
       </m.div>
     );
-  }
-
-  if (view === 'fuzzer') {
-    return <FuzzerLayout style={body} />;
   }
 
   if (activeRequest?.model === 'grpc_request') {
@@ -278,15 +272,17 @@ function useGlobalWorkspaceHooks() {
 
   useSyncWorkspaceRequestTitle();
 
-  useListenToTauriEvent<ModelPayload>('model_write', ({ payload }) => {
+  useListenToTauriEvent<ModelPayload>('model_write', async ({ payload }) => {
     if (payload.model.model === 'http_request' && payload.change.type === 'delete') {
       const deletedId = payload.model.id;
-      jotaiStore.set(fuzzerSessionsAtom, (prev) => {
-        if (!(deletedId in prev)) return prev;
-        const next = { ...prev };
-        delete next[deletedId];
-        return next;
-      });
+      try {
+        const kv = getKeyValueRaw({ key: ['fuzzer_session', deletedId] });
+        if (kv) {
+            await deleteModel(kv);
+        }
+      } catch (err) {
+        console.error('Failed to clean up fuzzer state for deleted request', err);
+      }
     }
   });
 
