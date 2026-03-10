@@ -1,7 +1,7 @@
 import type { HttpRequest, HttpResponse } from '@yaakapp-internal/models';
 import { describe, expect, it, vi } from 'vitest';
 import type { FuzzerMarker, FuzzerResult } from './runFuzzer';
-import { runFuzzerRequests } from './runFuzzer';
+import { encodeWord, runFuzzerRequests } from './runFuzzer';
 
 function createIdGenerator() {
   let index = 0;
@@ -56,6 +56,47 @@ function createResponse(status: number, contentLength: number): HttpResponse {
     version: 'HTTP/1.1',
   };
 }
+
+describe('encodeWord', () => {
+  it('none: returns the word unchanged', () => {
+    expect(encodeWord('hello world', 'none')).toBe('hello world');
+    expect(encodeWord('<script>', 'none')).toBe('<script>');
+  });
+
+  it('url: percent-encodes special characters', () => {
+    expect(encodeWord('hello world', 'url')).toBe('hello%20world');
+    expect(encodeWord('<>&=', 'url')).toBe('%3C%3E%26%3D');
+  });
+
+  it('base64: base64-encodes ASCII words', () => {
+    expect(encodeWord('admin', 'base64')).toBe('YWRtaW4=');
+    expect(encodeWord('hello', 'base64')).toBe('aGVsbG8=');
+  });
+
+  it('base64: handles Unicode safely', () => {
+    // Should not throw for non-ASCII input
+    expect(() => encodeWord('caf\u00e9', 'base64')).not.toThrow();
+    const result = encodeWord('caf\u00e9', 'base64');
+    expect(typeof result).toBe('string');
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('utf8: leaves printable ASCII intact', () => {
+    expect(encodeWord('hello123', 'utf8')).toBe('hello123');
+  });
+
+  it('utf8: percent-encodes non-ASCII characters as UTF-8 bytes', () => {
+    // é (U+00E9) in UTF-8 is 0xC3 0xA9
+    expect(encodeWord('\u00e9', 'utf8')).toBe('%C3%A9');
+  });
+
+  it('html: encodes HTML special characters as entities', () => {
+    expect(encodeWord('<script>alert("xss")</script>', 'html')).toBe(
+      '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
+    );
+    expect(encodeWord("it's & \"fun\"", 'html')).toBe("it&#39;s &amp; &quot;fun&quot;");
+  });
+});
 
 describe('runFuzzerRequests', () => {
   it('sends one request per word and appends one result per word', async () => {
@@ -125,6 +166,71 @@ describe('runFuzzerRequests', () => {
     expect(results[1]?.request?.url).toBe('https://example.com/beta');
     expect(results[0]?.response?.status).toBe(200);
     expect(results[1]?.response?.status).toBe(201);
+  });
+
+  it('applies word encoding before marker substitution', async () => {
+    const request = createRequest();
+    const markerText = 'FUZZ';
+    const markers: FuzzerMarker[] = [
+      {
+        id: 'url-marker',
+        field: 'url',
+        start: request.url.indexOf(markerText),
+        end: request.url.indexOf(markerText) + markerText.length,
+        originalText: markerText,
+      },
+    ];
+
+    const sendRequest = vi.fn().mockResolvedValue(createResponse(200, 0));
+
+    await runFuzzerRequests({
+      draftRequest: request,
+      markers,
+      rawHeaders: '',
+      words: ['hello world'],
+      sendRequest,
+      addResult: () => {},
+      generateId: createIdGenerator(),
+      now: () => 1_700_000_000_000,
+      nowPerf: () => 1,
+      settings: { requestsPerSecond: null, encoder: 'url' },
+    });
+
+    const sentRequest = sendRequest.mock.calls[0]?.[0];
+    expect(sentRequest?.url).toBe('https://example.com/hello%20world');
+  });
+
+  it('respects request rate limiting between words', async () => {
+    const request = createRequest();
+    const sendRequest = vi.fn().mockResolvedValue(createResponse(200, 0));
+
+    const sleepCalls: number[] = [];
+    const mockSleep = vi.fn((ms: number) => {
+      sleepCalls.push(ms);
+      return Promise.resolve();
+    });
+
+    await runFuzzerRequests({
+      draftRequest: request,
+      markers: [],
+      rawHeaders: '',
+      words: ['a', 'b', 'c'],
+      sendRequest,
+      addResult: () => {},
+      generateId: createIdGenerator(),
+      now: () => 1_700_000_000_000,
+      // Always returns 0 so elapsed is 0 and remaining equals the full interval
+      nowPerf: () => 0,
+      settings: { requestsPerSecond: 10, encoder: 'none' }, // 100ms per-word interval
+      sleepFn: mockSleep,
+    });
+
+    // 3 words → 2 inter-word gaps each sleeping 100ms (1000ms / 10 rps - 0ms elapsed)
+    expect(sleepCalls.length).toBe(2);
+    for (const delay of sleepCalls) {
+      expect(delay).toBeCloseTo(100, 0);
+    }
+    expect(sendRequest).toHaveBeenCalledTimes(3);
   });
 
   it('uses the active workspace id when provided', async () => {

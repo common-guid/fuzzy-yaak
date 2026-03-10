@@ -1,5 +1,53 @@
 import type { HttpRequest, HttpResponse } from '@yaakapp-internal/models';
 
+export type FuzzerEncoder = 'none' | 'url' | 'base64' | 'utf8' | 'html';
+
+export interface FuzzerSettings {
+  requestsPerSecond: number | null;
+  encoder: FuzzerEncoder;
+}
+
+export function encodeWord(word: string, encoder: FuzzerEncoder = 'none'): string {
+  switch (encoder) {
+    case 'url':
+      return encodeURIComponent(word);
+    case 'base64':
+      // Handle Unicode safely
+      return btoa(unescape(encodeURIComponent(word)));
+    case 'utf8': {
+      // Percent-encode only non-ASCII bytes; leave printable ASCII intact
+      let result = '';
+      for (const char of word) {
+        const code = char.codePointAt(0) ?? 0;
+        if (code < 0x80) {
+          result += char;
+        } else {
+          // Encode to UTF-8 bytes as %XX sequences
+          const bytes = new TextEncoder().encode(char);
+          for (const byte of bytes) {
+            result += `%${byte.toString(16).toUpperCase().padStart(2, '0')}`;
+          }
+        }
+      }
+      return result;
+    }
+    case 'html':
+      return word
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    case 'none':
+    default:
+      return word;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export interface FuzzerMarker {
   id: string;
   field: 'url' | 'body' | 'headers';
@@ -34,6 +82,9 @@ interface RunFuzzerRequestsOptions {
   now: () => number;
   nowPerf: () => number;
   shouldContinue?: () => boolean;
+  settings?: FuzzerSettings;
+  /** Injectable sleep for testing; defaults to real setTimeout-based sleep */
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 function applyMarkers(text: string, markers: FuzzerMarker[], word: string) {
@@ -93,19 +144,27 @@ export async function runFuzzerRequests({
   now,
   nowPerf,
   shouldContinue = () => true,
+  settings,
+  sleepFn = sleep,
 }: RunFuzzerRequestsOptions) {
   const urlMarkers = markers.filter((m) => m.field === 'url');
   const headerMarkers = markers.filter((m) => m.field === 'headers');
   const bodyMarkers = markers.filter((m) => m.field === 'body');
+  const encoder = settings?.encoder ?? 'none';
+  const rps = settings?.requestsPerSecond ?? null;
 
-  for (const word of words) {
+  for (let i = 0; i < words.length; i++) {
     if (!shouldContinue()) break;
+
+    const word = words[i] as string;
+    const encodedWord = encodeWord(word, encoder);
+    const iterationStart = nowPerf();
 
     const request = { ...draftRequest, workspaceId: workspaceId ?? draftRequest.workspaceId };
 
-    request.url = applyMarkers(request.url ?? '', urlMarkers, word);
-    const bodyText = applyMarkers(request.body?.text ?? '', bodyMarkers, word);
-    const headersText = applyMarkers(rawHeaders, headerMarkers, word);
+    request.url = applyMarkers(request.url ?? '', urlMarkers, encodedWord);
+    const bodyText = applyMarkers(request.body?.text ?? '', bodyMarkers, encodedWord);
+    const headersText = applyMarkers(rawHeaders, headerMarkers, encodedWord);
     request.body = { ...request.body, text: bodyText };
     request.headers = parseHeaders(headersText, generateId);
     const requestSnapshot = cloneRequest(request);
@@ -137,6 +196,16 @@ export async function runFuzzerRequests({
         timestamp: now(),
         request: requestSnapshot,
       });
+    }
+
+    // Rate limiting: wait remaining time in the interval after each non-last word
+    if (rps != null && i < words.length - 1) {
+      const minInterval = 1000 / rps;
+      const elapsed = nowPerf() - iterationStart;
+      const remaining = minInterval - elapsed;
+      if (remaining > 0) {
+        await sleepFn(remaining);
+      }
     }
   }
 }

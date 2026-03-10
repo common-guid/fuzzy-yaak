@@ -26,12 +26,27 @@ import { HttpStatusTagRaw } from '../core/HttpStatusTag';
 import { atomWithKVStorage } from '../../lib/atoms/atomWithKVStorage';
 import { runFuzzerRequests, type FuzzerMarker, type FuzzerResult } from './runFuzzer';
 import { patchModel } from '@yaakapp-internal/models';
+import { PlainInput } from '../core/PlainInput';
+import { Select } from '../core/Select';
+
+export type FuzzerEncoder = 'none' | 'url' | 'base64' | 'utf8' | 'html';
+
+export interface FuzzerSettings {
+  requestsPerSecond: number | null;
+  encoder: FuzzerEncoder;
+}
+
+const defaultSettings: FuzzerSettings = {
+  requestsPerSecond: null,
+  encoder: 'none',
+};
 
 export interface FuzzerRun {
   id: string;
   requestSnapshot: HttpRequest;
   markers: FuzzerMarker[];
   wordlist: string;
+  settings: FuzzerSettings;
   results: FuzzerResult[];
   createdAt: number;
 }
@@ -41,6 +56,7 @@ export interface FuzzerSessionState {
   wordlist: string;
   isLocked: boolean;
   runs: FuzzerRun[];
+  settings: FuzzerSettings;
 }
 
 const defaultSessionState: FuzzerSessionState = {
@@ -48,6 +64,7 @@ const defaultSessionState: FuzzerSessionState = {
   wordlist: '',
   isLocked: false,
   runs: [],
+  settings: defaultSettings,
 };
 
 const sessionAtoms = new Map<string, ReturnType<typeof atomWithKVStorage<FuzzerSessionState>>>();
@@ -228,6 +245,54 @@ function FuzzerResponseDetailPanel({
   );
 }
 
+const ENCODER_OPTIONS: { value: FuzzerEncoder; label: string }[] = [
+  { value: 'none', label: 'None' },
+  { value: 'url', label: 'URL' },
+  { value: 'base64', label: 'Base64' },
+  { value: 'utf8', label: 'UTF-8' },
+  { value: 'html', label: 'HTML' },
+];
+
+function FuzzerSettingsSection({
+  settings,
+  onChange,
+  disabled,
+}: {
+  settings: FuzzerSettings;
+  onChange: (patch: Partial<FuzzerSettings>) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="flex-none border-t border-border-subtle">
+      <div className="px-3 py-2 font-semibold text-sm border-b border-border-subtle">Settings</div>
+      <div className="p-3 flex flex-col gap-3">
+        <PlainInput
+          label="Max req/s"
+          labelPosition="top"
+          type="number"
+          size="sm"
+          placeholder="Unlimited"
+          defaultValue={settings.requestsPerSecond != null ? String(settings.requestsPerSecond) : ''}
+          onChange={(v) => {
+            const parsed = v.trim() === '' ? null : Number(v);
+            onChange({ requestsPerSecond: parsed != null && !Number.isNaN(parsed) && parsed > 0 ? parsed : null });
+          }}
+          disabled={disabled}
+        />
+        <Select
+          name="fuzzer-encoder"
+          label="Encoder"
+          size="sm"
+          value={settings.encoder}
+          options={ENCODER_OPTIONS}
+          onChange={(v) => onChange({ encoder: v })}
+          disabled={disabled}
+        />
+      </div>
+    </div>
+  );
+}
+
 interface FuzzerTabProps {
   activeRequest: HttpRequest;
   className?: string;
@@ -373,6 +438,8 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
       return;
     }
 
+    const settings = session.settings ?? defaultSettings;
+
     setRunningStates((prev) => ({ ...prev, [activeRequestId]: true }));
 
     const runId = generateId();
@@ -381,6 +448,7 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
       requestSnapshot: activeRequest,
       markers,
       wordlist,
+      settings,
       results: [],
       createdAt: Date.now(),
     };
@@ -405,6 +473,7 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
         generateId,
         now: () => Date.now(),
         nowPerf: () => performance.now(),
+        settings,
       });
     } finally {
       setRunningStates((prev) => ({ ...prev, [activeRequestId]: false }));
@@ -541,7 +610,7 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
             Import
           </Button>
         </HStack>
-        <div className="flex-1 min-h-0 relative">
+        <div className="flex-1 min-h-[150px] min-h-0 relative">
             <Editor
                 language="text"
                 defaultValue={wordlist}
@@ -552,6 +621,11 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
                 readOnly={isRunning}
             />
         </div>
+        <FuzzerSettingsSection
+          settings={session.settings ?? defaultSettings}
+          onChange={(patch) => updateSession({ settings: { ...(session.settings ?? defaultSettings), ...patch } })}
+          disabled={isRunning}
+        />
       </div>
     </div>
   );
