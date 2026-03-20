@@ -554,7 +554,7 @@ function FuzzerRequestPane({ activeRequest, switchToResults }: { activeRequest: 
                 <div className="flex-1 relative">
                     <Editor
                         forceUpdateKey={`fuzzer_headers_${activeRequest.id}`}
-                        language={null} // Force plain text
+                        language="http"
                         defaultValue={rawHeaders}
                         onChange={handleHeadersChange}
                         readOnly={isLocked || isRunning}
@@ -650,6 +650,13 @@ function FuzzerResultsPane({ activeRequest }: { activeRequest: HttpRequest }) {
 
   const selectedRun = useMemo(() => runs.find((r) => r.id === selectedRunId) ?? runs[0] ?? null, [runs, selectedRunId]);
   const results = selectedRun?.results ?? [];
+
+  const runOptions = useMemo(() => {
+    return runs.map((run, i) => ({
+      value: run.id,
+      label: `Run ${runs.length - i} (${new Date(run.createdAt).toLocaleTimeString()}) - ${run.results.length} results`,
+    }));
+  }, [runs]);
 
   const [selectedResultId, setSelectedResultId] = useState<string | null>(null);
   const [isDetailsPaneOpen, setIsDetailsPaneOpen] = useState(true);
@@ -760,22 +767,17 @@ function FuzzerResultsPane({ activeRequest }: { activeRequest: HttpRequest }) {
     <div className="h-full flex flex-col">
       <div className="flex-none p-2 border-b border-border-subtle flex items-center justify-between">
         <HStack space={2}>
-          <select
-            className="bg-surface text-text text-sm border border-border-subtle rounded px-2 py-1 outline-none focus:border-border-focus transition-colors"
+          <Select
+            name="fuzzer-run"
+            label="Run"
+            hideLabel
+            size="sm"
             value={selectedRun?.id ?? ''}
-            onChange={(e) => setSelectedRunId(e.target.value)}
+            options={runOptions}
+            onChange={(v) => setSelectedRunId(v)}
             disabled={runs.length === 0}
-          >
-            {runs.length === 0 ? (
-              <option value="">No runs yet</option>
-            ) : (
-              runs.map((run, i) => (
-                <option key={run.id} value={run.id}>
-                  Run {runs.length - i} ({new Date(run.createdAt).toLocaleTimeString()}) - {run.results.length} results
-                </option>
-              ))
-            )}
-          </select>
+            className="w-[300px]"
+          />
           <div className="text-xs text-text-subtle ml-2">Use ↑ and ↓ to browse result rows</div>
         </HStack>
         <HStack space={2}>
@@ -825,20 +827,20 @@ function FuzzerResultsPane({ activeRequest }: { activeRequest: HttpRequest }) {
                     key={result.id}
                     className={classNames(
                       'cursor-pointer hocus:[&>td]:bg-surface-highlight/30',
-                      isSelected && '[&>td]:bg-primary/10 [&>td]:border-y [&>td]:border-border-focus',
+                      isSelected && '[&>td]:bg-surface-highlight',
                     )}
                     onClick={() => handleSelectResult(result.id)}
                     aria-selected={isSelected}
                   >
-                    <TableCell className={classNames('text-text-subtle', isSelected && 'font-semibold')}>
+                    <TableCell className={classNames('text-text-subtle', isSelected && 'font-semibold text-text')}>
                       {index + 1}
                     </TableCell>
-                    <TableCell>{result.word}</TableCell>
+                    <TableCell className={classNames(isSelected && 'text-text')}>{result.word}</TableCell>
                     <TableCell>
                       <HttpStatusTagRaw status={result.status} />
                     </TableCell>
-                    <TableCell>{result.contentLength}</TableCell>
-                    <TableCell>{result.elapsed.toFixed(0)}ms</TableCell>
+                    <TableCell className={classNames(isSelected && 'text-text')}>{result.contentLength}</TableCell>
+                    <TableCell className={classNames(isSelected && 'text-text')}>{result.elapsed.toFixed(0)}ms</TableCell>
                     <TableCell className="text-danger">{result.error}</TableCell>
                   </tr>
                 );
